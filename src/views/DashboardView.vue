@@ -1,0 +1,376 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
+import TrendChart from '@/components/TrendChart.vue'
+import DonutChart, { type Slice } from '@/components/DonutChart.vue'
+import { STATUS_META } from '@/data/filingStatus'
+import { categoryLabel, modeDefinition } from '@/data/workspaceModes'
+import { ApiError, api, type EntryRecord, type Filing, type Workspace } from '@/services/api'
+import {
+  analyseExpenseRisk,
+  analyseRunway,
+  monthlyBreakdown,
+  summarise,
+} from '@/services/ledgerEngine'
+import { formatBaht, formatPercent, thaiDate } from '@/services/taxEngine'
+import { useAuthStore } from '@/stores/auth'
+import { useToastStore } from '@/stores/toast'
+
+const auth = useAuthStore()
+const toast = useToastStore()
+
+const workspaces = ref<Workspace[]>([])
+const entries = ref<EntryRecord[]>([])
+const filings = ref<Filing[]>([])
+const loading = ref(true)
+
+/** รวมทุกสมุดเป็นภาพเดียว เพื่อตอบว่า "ตอนนี้ยืนอยู่ตรงไหน" */
+const overall = computed(() => summarise(entries.value, 'personal'))
+const trend = computed(() => monthlyBreakdown(entries.value))
+
+const totalCapital = computed(
+  () => workspaces.value.reduce((sum, w) => sum + w.capital, 0) + overall.value.net,
+)
+
+/** สรุปรายสมุด พร้อมผลวิเคราะห์ตามเกณฑ์ของโหมดนั้น ๆ */
+const perWorkspace = computed(() =>
+  workspaces.value.map((ws) => {
+    const own = entries.value.filter((e) => e.workspaceId === ws.id)
+    const s = summarise(own, ws.mode)
+    const months = s.monthsCovered
+    const avgIncome = s.income / months
+    const avgExpense = s.expense / months
+    return {
+      workspace: ws,
+      definition: modeDefinition(ws.mode),
+      summary: s,
+      capital: ws.capital + s.net,
+      risk: analyseExpenseRisk(avgIncome, avgExpense, ws.mode),
+      runway: analyseRunway(ws.capital + s.net, avgExpense, avgIncome, ws.mode),
+      points: monthlyBreakdown(own),
+    }
+  }),
+)
+
+/** เงินทุนกระจายอยู่ในสมุดเล่มไหนบ้าง — ภาพรวมพอร์ตของผู้ใช้ */
+const allocation = computed<Slice[]>(() =>
+  perWorkspace.value
+    .filter((row) => row.capital > 0)
+    .map((row) => ({ label: row.workspace.name, value: row.capital })),
+)
+
+/** โหมดของแต่ละสมุด ใช้แปลชื่อหมวดให้ถูกเล่ม */
+const modeOf = computed(() => new Map(workspaces.value.map((w) => [w.id, w.mode])))
+
+/**
+ * หมวดที่ใช้เงินมากที่สุด 5 อันดับ รวมทุกสมุด
+ *
+ * ต้องแปลชื่อหมวดด้วยโหมดของสมุดที่รายการนั้นสังกัด ไม่ใช่โหมดเดียวเหมาไปทั้งหน้า
+ * ไม่งั้นหมวดที่มีเฉพาะบางโหมด เช่น ต้นทุนขาย จะแปลไม่ออก
+ * จัดกลุ่มด้วยชื่อที่แปลแล้ว หมวดชื่อเดียวกันจากคนละสมุดจึงรวมยอดกัน
+ */
+const topExpenses = computed<Slice[]>(() => {
+  const totals = new Map<string, number>()
+  for (const e of entries.value) {
+    if (e.type !== 'expense') continue
+    const label = categoryLabel(modeOf.value.get(e.workspaceId) ?? 'personal', e.categoryKey)
+    totals.set(label, (totals.get(label) ?? 0) + e.amount)
+  }
+  return [...totals.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+})
+
+const latestFiling = computed(() => filings.value[0] ?? null)
+
+/** เรื่องที่ควรจัดการก่อน รวบจากทุกสมุด */
+const alerts = computed(() => {
+  const list: { level: 'bad' | 'warn'; text: string; to: string }[] = []
+  for (const row of perWorkspace.value) {
+    if (row.summary.entryCount === 0) continue
+    if (row.risk.level === 'deficit' || row.risk.level === 'risky') {
+      list.push({
+        level: row.risk.level === 'deficit' ? 'bad' : 'warn',
+        text: `${row.workspace.name}: ${row.risk.headline} — ${row.risk.expenseToCut > 0 ? `ควรลดรายจ่ายอีกเดือนละ ${formatBaht(row.risk.expenseToCut)}` : 'ตรวจสอบรายจ่ายอีกครั้ง'}`,
+        to: `/workspace/${row.workspace.id}`,
+      })
+    }
+    if (row.runway.level === 'critical' || row.runway.level === 'tight') {
+      list.push({
+        level: row.runway.level === 'critical' ? 'bad' : 'warn',
+        text: `${row.workspace.name}: เงินทุนอยู่ได้อีก ${row.runway.months.toFixed(1)} เดือน ต่ำกว่าเกณฑ์ ${row.runway.recommendedMonths} เดือน`,
+        to: `/workspace/${row.workspace.id}`,
+      })
+    }
+  }
+  return list
+})
+
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'สวัสดีตอนเช้า'
+  if (hour < 18) return 'สวัสดีตอนบ่าย'
+  return 'สวัสดีตอนค่ำ'
+})
+
+onMounted(async () => {
+  try {
+    const [ws, es, fs] = await Promise.all([api.workspaces(), api.allEntries(), api.filings()])
+    workspaces.value = ws
+    entries.value = es
+    filings.value = fs
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'โหลดข้อมูลแดชบอร์ดไม่สำเร็จ')
+  } finally {
+    loading.value = false
+  }
+})
+</script>
+
+<template>
+  <main id="main-content" tabindex="-1" class="section">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">แดชบอร์ด</span>
+        <h2>{{ greeting }} {{ auth.user?.fullName ?? '' }}</h2>
+        <p>ภาพรวมเงินของคุณจากทุกสมุดบัญชี พร้อมสถานะภาษีล่าสุด</p>
+      </div>
+
+      <div v-if="loading" class="card" aria-busy="true">
+        <span class="sr-only">กำลังโหลดแดชบอร์ด</span>
+        <div class="skeleton skeleton-line w40"></div>
+        <div class="skeleton skeleton-row"></div>
+        <div class="skeleton skeleton-row"></div>
+      </div>
+
+      <!-- ยังไม่มีสมุดเลย ชวนให้เริ่ม -->
+      <div v-else-if="!workspaces.length" class="empty-state">
+        <span class="ico-big"><AppIcon name="wallet" :size="26" /></span>
+        <h3>ยังไม่มีสมุดบัญชี</h3>
+        <p>
+          สร้างสมุดเล่มแรกแล้วบันทึกรายรับรายจ่าย
+          แดชบอร์ดจะสรุปให้เห็นภาพรวมเงินทุน ความเสี่ยง และเป้าหมายทั้งหมดที่นี่
+        </p>
+        <div class="cta-row" style="justify-content: center">
+          <RouterLink class="btn btn-primary" to="/workspaces">สร้างสมุดบัญชี</RouterLink>
+          <RouterLink class="btn btn-ghost" to="/calculator">ลองคำนวณภาษีก่อน</RouterLink>
+        </div>
+      </div>
+
+      <template v-else>
+        <!-- ตัวเลขหลัก -->
+        <div class="grid grid-4 mb-3">
+          <div class="card stat">
+            <span class="eyebrow">เงินทุนรวมทุกสมุด</span>
+            <strong class="num">{{ formatBaht(totalCapital) }}</strong>
+            <span class="muted small">{{ workspaces.length }} เล่ม</span>
+          </div>
+          <div class="card stat">
+            <span class="eyebrow">รายรับสะสม</span>
+            <strong class="num text-ok">{{ formatBaht(overall.income) }}</strong>
+            <span class="muted small">จาก {{ overall.entryCount }} รายการ</span>
+          </div>
+          <div class="card stat">
+            <span class="eyebrow">รายจ่ายสะสม</span>
+            <strong class="num text-bad">{{ formatBaht(overall.expense) }}</strong>
+            <span class="muted small">
+              คิดเป็น {{ formatPercent(overall.income > 0 ? overall.expense / overall.income : 0) }} ของรายรับ
+            </span>
+          </div>
+          <div class="card stat">
+            <span class="eyebrow">คงเหลือสุทธิ</span>
+            <strong class="num" :class="overall.net >= 0 ? 'text-ok' : 'text-bad'">
+              {{ formatBaht(overall.net) }}
+            </strong>
+            <span class="muted small">อัตราการออม {{ formatPercent(overall.savingsRate) }}</span>
+          </div>
+        </div>
+
+        <!-- เรื่องที่ควรจัดการก่อน -->
+        <section v-if="alerts.length" class="card">
+          <div class="card-head">
+            <div>
+              <h3>ควรดูก่อน</h3>
+              <p>รวบจากทุกสมุดที่ตัวเลขเข้าเกณฑ์ต้องระวัง</p>
+            </div>
+          </div>
+          <RouterLink
+            v-for="(alert, i) in alerts"
+            :key="i"
+            :to="alert.to"
+            class="alert-row"
+            :class="alert.level"
+          >
+            <AppIcon name="alert" :size="18" />
+            <span>{{ alert.text }}</span>
+            <AppIcon name="arrowRight" :size="16" />
+          </RouterLink>
+        </section>
+
+        <!-- กราฟแนวโน้ม -->
+        <section v-if="trend.length > 1" class="card">
+          <div class="card-head">
+            <div>
+              <h3>รายรับและรายจ่ายรายเดือน</h3>
+              <p>รวมทุกสมุด {{ trend.length }} เดือนล่าสุด</p>
+            </div>
+          </div>
+          <TrendChart :points="trend" />
+        </section>
+
+        <!-- พอร์ตและรายจ่าย -->
+        <div class="grid grid-2">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h3>เงินทุนกระจายอยู่ที่ไหน</h3>
+                <p>สัดส่วนตามสมุดแต่ละเล่ม</p>
+              </div>
+            </div>
+            <DonutChart
+              :slices="allocation"
+              center-label="เงินทุนรวม"
+              :center-value="formatBaht(totalCapital)"
+            />
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h3>หมวดที่ใช้เงินมากที่สุด</h3>
+                <p>5 อันดับแรกจากทุกสมุด</p>
+              </div>
+            </div>
+            <DonutChart
+              :slices="topExpenses"
+              center-label="รายจ่ายรวม"
+              :center-value="formatBaht(overall.expense)"
+            />
+          </section>
+        </div>
+
+        <!-- รายสมุด -->
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>สมุดของฉัน</h3>
+              <p>ความเสี่ยงและเงินสำรองคิดตามเกณฑ์ของแต่ละโหมด</p>
+            </div>
+            <RouterLink class="btn btn-ghost btn-sm" to="/workspaces">จัดการสมุด</RouterLink>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>สมุด</th>
+                  <th>โหมด</th>
+                  <th class="right">เงินทุนคงเหลือ</th>
+                  <th class="right">เหลือเก็บ/เดือน</th>
+                  <th>ความเสี่ยงรายจ่าย</th>
+                  <th>เงินทุนอยู่ได้</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in perWorkspace" :key="row.workspace.id">
+                  <td>
+                    <RouterLink :to="`/workspace/${row.workspace.id}`">
+                      {{ row.workspace.name }}
+                    </RouterLink>
+                  </td>
+                  <td>{{ row.definition.label }}</td>
+                  <td class="money">{{ formatBaht(row.capital) }}</td>
+                  <td class="money" :class="row.risk.surplus >= 0 ? 'text-ok' : 'text-bad'">
+                    {{ formatBaht(row.risk.surplus) }}
+                  </td>
+                  <td>
+                    <span
+                      class="badge"
+                      :class="
+                        ['healthy', 'comfortable'].includes(row.risk.level)
+                          ? 'badge-ok'
+                          : row.risk.level === 'watch'
+                            ? 'badge-warn'
+                            : 'badge-bad'
+                      "
+                    >
+                      {{ formatPercent(row.risk.ratio) }}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      class="badge"
+                      :class="
+                        ['positive', 'healthy'].includes(row.runway.level)
+                          ? 'badge-ok'
+                          : row.runway.level === 'critical'
+                            ? 'badge-bad'
+                            : 'badge-warn'
+                      "
+                    >
+                      {{
+                        Number.isFinite(row.runway.months)
+                          ? `${row.runway.months.toFixed(1)} เดือน`
+                          : 'ไม่ต้องเผาทุน'
+                      }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- สถานะภาษี -->
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>สถานะภาษี</h3>
+              <p>แบบภาษีล่าสุดที่ยื่นผ่านระบบ</p>
+            </div>
+            <RouterLink class="btn btn-ghost btn-sm" to="/history">ดูทั้งหมด</RouterLink>
+          </div>
+
+          <div v-if="!latestFiling" class="empty-state" style="padding: var(--space-3)">
+            <h3>ยังไม่เคยยื่นแบบผ่านระบบ</h3>
+            <p>เมื่อยื่นแบบภาษีชุดแรก สถานะจะมาแสดงที่นี่</p>
+            <RouterLink class="btn btn-primary" to="/filing">เริ่มยื่นแบบภาษี</RouterLink>
+          </div>
+
+          <div v-else class="price-lines">
+            <div class="price-line">
+              <span class="lbl">เลขอ้างอิง</span>
+              <span class="val">{{ latestFiling.reference }}</span>
+            </div>
+            <div class="price-line">
+              <span class="lbl">ปีภาษี</span>
+              <span class="val">{{ latestFiling.taxYear }} ({{ latestFiling.formType }})</span>
+            </div>
+            <div class="price-line">
+              <span class="lbl">ยื่นเมื่อ</span>
+              <span class="val">{{ thaiDate(latestFiling.submittedAt) }}</span>
+            </div>
+            <div class="price-line total">
+              <span class="lbl">
+                {{ latestFiling.balance < 0 ? 'ขอคืนได้' : 'ต้องชำระเพิ่ม' }}
+              </span>
+              <span class="val">{{ formatBaht(Math.abs(latestFiling.balance)) }}</span>
+            </div>
+          </div>
+
+          <RouterLink
+            v-if="latestFiling"
+            class="btn btn-ghost btn-block mt-2"
+            :to="`/status/${latestFiling.reference}`"
+          >
+            <span class="badge" :class="STATUS_META[latestFiling.status].badge">
+              {{ STATUS_META[latestFiling.status].label }}
+            </span>
+            ติดตามสถานะ
+          </RouterLink>
+        </section>
+      </template>
+    </div>
+  </main>
+</template>
