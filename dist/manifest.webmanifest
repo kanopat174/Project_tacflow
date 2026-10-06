@@ -1,0 +1,19 @@
+{
+  "name": "TaxFlow — วางแผนภาษีและสมุดบัญชี",
+  "short_name": "TaxFlow",
+  "description": "คำนวณภาษี วางแผนลดหย่อน และจดรายรับรายจ่ายในที่เดียว",
+  "lang": "th",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6fbfa",
+  "theme_color": "#0f8f86",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "คำนวณภาษี", "url": "/calculator/personal" },
+    { "name": "สมุดบัญชี", "url": "/workspaces" }
+  ]
+}
