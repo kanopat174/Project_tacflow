@@ -2,6 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
+import BackupPanel from '@/components/BackupPanel.vue'
+import IntroSettings from '@/components/IntroSettings.vue'
 import IdentityInput from '@/components/IdentityInput.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import { usePwaInstall } from '@/composables/usePwaInstall'
@@ -366,6 +368,10 @@ function goBackToFiling() {
               <RouterLink class="btn btn-ghost btn-block" to="/documents">จัดการเอกสารแนบ</RouterLink>
             </div>
           </section>
+
+          <IntroSettings />
+
+          <BackupPanel />
 
           <section class="card">
             <div class="card-head">

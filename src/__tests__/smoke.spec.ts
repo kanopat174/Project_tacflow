@@ -42,6 +42,7 @@ describe('ทุกหน้าเรนเดอร์ได้จริง', (
       '/', '/calculator', '/calculator/personal', '/calculator/corporate',
       '/calculator/dividend', '/calculator/capital-gains',
       '/calculator/vat', '/calculator/withholding', '/calculator/what-if',
+      '/calculator/late-payment', '/calculator/half-year', '/glossary', '/welcome',
       '/deductions', '/filing', '/documents',
       '/history', '/status/TF-2567-0001', '/profile',
       '/workspaces', '/workspace/w_seed_personal',
@@ -116,6 +117,7 @@ describe('เอกสารสำหรับบันทึกเป็น PDF
       '/calculator/capital-gains': 'ใบสรุปการคำนวณภาษีจากกำไรการขายหุ้น',
       '/calculator/vat': 'ใบสรุปภาษีมูลค่าเพิ่มประจำเดือน',
       '/calculator/withholding': 'ใบสรุปการคำนวณภาษีหัก ณ ที่จ่าย',
+      '/calculator/late-payment': 'ใบสรุปเงินเพิ่มและค่าปรับจากการยื่นล่าช้า',
     }
 
     for (const [path, title] of Object.entries(expected)) {
@@ -475,7 +477,7 @@ describe('หน้าแรกกับแดชบอร์ด', () => {
     wrapper.unmount()
   })
 
-  it('เมนูแรกสลับระหว่างหน้าแรกกับแดชบอร์ดตามสถานะ', async () => {
+  it('ผู้เยี่ยมชมเห็นเมนูแนวนอน สมาชิกเห็นเมนูด้านข้างที่เริ่มด้วยแดชบอร์ด', async () => {
     await api.logout()
     const guest = await guardedApp()
     expect(guest.wrapper.findAll('.site-nav a')[0]?.text()).toBe('หน้าแรก')
@@ -483,7 +485,8 @@ describe('หน้าแรกกับแดชบอร์ด', () => {
 
     await api.login({ username: 'somchai', password: 'somchai123' })
     const member = await guardedApp()
-    expect(member.wrapper.findAll('.site-nav a')[0]?.text()).toBe('แดชบอร์ด')
+    expect(member.wrapper.find('.site-header').exists()).toBe(false)
+    expect(member.wrapper.findAll('.side-link')[0]?.text()).toBe('แดชบอร์ด')
     member.wrapper.unmount()
   })
 
@@ -501,7 +504,9 @@ describe('หน้าแรกกับแดชบอร์ด', () => {
     // สมุดตัวอย่างมีทุน 100,000 และรายรับ 30,000 รายจ่าย 27,000 จากสองเดือน
     expect(wrapper.text()).toContain('รายรับสะสม')
     expect(wrapper.text()).toContain('สมุดของฉัน')
-    expect(wrapper.find('.donut').exists()).toBe(true)
+    // กราฟรายเดือนแบบแท่ง และแท่งจัดอันดับแทนโดนัท
+    expect(wrapper.find('.monthly-chart').exists()).toBe(true)
+    expect(wrapper.findAll('.ranked').length).toBe(2)
 
     wrapper.unmount()
   })

@@ -7,9 +7,23 @@ import { findMascot } from '@/data/mascot'
 import { useTheme } from '@/composables/useTheme'
 import { thaiDate } from '@/services/taxEngine'
 import { useGameStore } from '@/stores/game'
+import type { Accessory } from '@/services/gamification'
+import { useFx } from '@/composables/useFx'
+import { centerOf } from '@/services/fx'
+import { useMascotFxStore } from '@/stores/mascotFx'
 
 const theme = useTheme()
 const game = useGameStore()
+const fx = useFx()
+const mascotFx = useMascotFxStore()
+
+/** ใส่ของแต่งตัวแล้วมีประกายวิ้ง และตัวการ์ตูนมุมขวาล่างถามว่าสวยไหม */
+function equip(key: Accessory, event: Event) {
+  if (game.equipped === key) return
+  game.equip(key)
+  fx.sparkle(centerOf(event.currentTarget as HTMLElement))
+  mascotFx.react('equip')
+}
 
 onMounted(() => void game.refresh())
 
@@ -87,12 +101,12 @@ const xpToNext = computed(() =>
             :class="{ active: game.equipped === item.key, locked: !game.accessories.includes(item.key) }"
             :disabled="!game.accessories.includes(item.key)"
             :aria-pressed="game.equipped === item.key"
-            @click="game.equip(item.key)"
+            @click="equip(item.key, $event)"
           >
             <MascotFigure :mascot="mascot.key" :size="64" :accessory="item.key" />
             <span>{{ item.label }}</span>
             <small v-if="!game.accessories.includes(item.key)">
-              <AppIcon name="lock" :size="12" /> เลเวล {{ item.level }}
+              <AppIcon name="lock" :size="12" /> {{ item.level !== null ? `เลเวล ${item.level}` : item.unlockHint }}
             </small>
           </button>
         </div>

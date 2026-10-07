@@ -12,6 +12,15 @@
 import { categoriesOf, type WorkspaceMode } from '@/data/workspaceModes'
 import { dueRecurringDates, type Evidence, type Goal, type LedgerEntry, type RecurringTemplate } from './ledgerEngine'
 import { fileStore } from './fileStore'
+import { INSTALLMENT_COUNT, canPayInInstallments, type PaymentPlan } from './latePayment'
+import {
+  backupCounts,
+  blobToDataUrl,
+  dataUrlToBlob,
+  remapBackup,
+  type BackupData,
+  type BackupFile,
+} from './backup'
 import { beginActivity, endActivity } from './activity'
 import {
   CITIZEN_ID_ERROR,
@@ -72,6 +81,8 @@ export interface Filing {
   status: FilingStatus
   /** สแนปช็อตข้อมูลที่ยื่น เพื่อเปิดดูย้อนหลังได้ */
   snapshot: Record<string, unknown>
+  /** แผนการชำระภาษีที่ต้องจ่ายเพิ่ม (ครั้งเดียวหรือผ่อน 3 งวด) — ไม่มีคือยังไม่ได้ตั้ง */
+  payment?: PaymentPlan
 }
 
 export interface DocumentRecord {
@@ -617,6 +628,27 @@ export const api = {
     return delay({ ...found })
   },
 
+  /** ตั้งแผนการชำระ และบันทึกว่างวดไหนจ่ายแล้ว */
+  async updatePayment(reference: string, plan: PaymentPlan): Promise<Filing> {
+    const db = readDatabase()
+    const user = currentUserOrThrow(db)
+    const found = db.filings.find((f) => f.reference === reference && f.userId === user.id)
+    if (!found) throw new ApiError('ไม่พบแบบภาษีตามเลขอ้างอิงนี้', 404)
+    if (found.balance <= 0) throw new ApiError('แบบภาษีนี้ไม่มียอดที่ต้องชำระเพิ่ม')
+    if (!['single', 'installments'].includes(plan.mode)) throw new ApiError('รูปแบบการชำระไม่ถูกต้อง')
+    if (!['online', 'paper'].includes(plan.channel)) throw new ApiError('ช่องทางยื่นไม่ถูกต้อง')
+    if (plan.mode === 'installments' && !canPayInInstallments(found.balance)) {
+      throw new ApiError('ผ่อนชำระได้เมื่อภาษีที่ต้องชำระตั้งแต่ 3,000 บาทขึ้นไป')
+    }
+    const count = plan.mode === 'installments' ? INSTALLMENT_COUNT : 1
+    const paidDates = Array.from({ length: count }, (_, i) => plan.paidDates[i] ?? '')
+    if (paidDates.some((d) => d && !/^\d{4}-\d{2}-\d{2}$/.test(d))) throw new ApiError('วันที่ชำระไม่ถูกต้อง')
+
+    found.payment = { mode: plan.mode, channel: plan.channel, paidDates }
+    writeDatabase(db)
+    return delay({ ...found })
+  },
+
   async createFiling(input: CreateFilingInput): Promise<Filing> {
     const db = readDatabase()
     const user = currentUserOrThrow(db)
@@ -842,6 +874,35 @@ export const api = {
     db.entries.push(record)
     writeDatabase(db)
     return delay(record)
+  },
+
+  /** เพิ่มหลายรายการในครั้งเดียว (นำเข้า statement) — ตรวจครบทุกแถวก่อน แถวไหนผิดจะไม่บันทึกเลยสักแถว */
+  async addEntries(workspaceId: string, inputs: Omit<LedgerEntry, 'id'>[]): Promise<EntryRecord[]> {
+    const db = readDatabase()
+    const user = currentUserOrThrow(db)
+    const ws = db.workspaces.find((w) => w.id === workspaceId && w.userId === user.id)
+    if (!ws) throw new ApiError('ไม่พบสมุดบัญชีเล่มนี้', 404)
+    if (inputs.length > 5_000) throw new ApiError('นำเข้าได้ครั้งละไม่เกิน 5,000 รายการ')
+
+    const records = inputs.map((input, i): EntryRecord => {
+      const amount = Number(input.amount)
+      if (!Number.isFinite(amount) || amount <= 0) throw new ApiError(`แถวที่ ${i + 1}: จำนวนเงินต้องมากกว่า 0`)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new ApiError(`แถวที่ ${i + 1}: วันที่ไม่ถูกต้อง`)
+      if (!categoriesOf(ws.mode, input.type).some((c) => c.key === input.categoryKey)) {
+        throw new ApiError(`แถวที่ ${i + 1}: หมวดไม่ตรงกับประเภทรายการ`)
+      }
+      return {
+        ...input,
+        amount,
+        note: (input.note ?? '').trim().slice(0, 200),
+        id: randomId('e'),
+        workspaceId,
+        userId: user.id,
+      }
+    })
+    db.entries.push(...records)
+    writeDatabaseOrThrow(db)
+    return delay(records)
   },
 
   /** แก้รายการที่บันทึกไปแล้ว — หลักฐานที่แนบไว้ยังผูกอยู่กับรายการเดิม ไม่หายไปไหน */
@@ -1147,6 +1208,80 @@ export const api = {
     db.documents.splice(index, 1)
     writeDatabase(db)
     return delay(null)
+  },
+}
+
+/* ---------- สำรองและกู้คืนข้อมูล ---------- */
+
+export const backupApi = {
+  /** ข้อมูลทั้งหมดของบัญชีที่ล็อกอินอยู่ พร้อมไฟล์หลักฐาน (ไม่รวมรหัสผ่าน) */
+  async exportData(): Promise<Pick<BackupFile, 'account' | 'data' | 'files'>> {
+    const db = readDatabase()
+    const user = currentUserOrThrow(db)
+    const mine = <T extends { userId: string }>(rows: T[]) =>
+      rows.filter((r) => r.userId === user.id) as unknown as BackupData[keyof BackupData]
+    const data: BackupData = {
+      filings: mine(db.filings),
+      documents: mine(db.documents),
+      workspaces: mine(db.workspaces),
+      entries: mine(db.entries),
+      goals: mine(db.goals),
+      evidence: mine(db.evidence),
+      recurring: mine(db.recurring),
+      challenges: mine(db.challenges),
+    }
+    const files: Record<string, string> = {}
+    for (const ev of data.evidence) {
+      const blob = await fileStore.get(ev.id)
+      if (blob) files[ev.id] = await blobToDataUrl(blob)
+    }
+    return delay({ account: { username: user.username, fullName: user.fullName }, data, files })
+  },
+
+  /** แทนที่ข้อมูลทั้งหมดของบัญชีที่ล็อกอินอยู่ด้วยข้อมูลจากไฟล์สำรอง คืนจำนวนรายการที่กู้คืน */
+  async importData(backup: BackupFile): Promise<Record<keyof BackupData, number>> {
+    const db = readDatabase()
+    const user = currentUserOrThrow(db)
+    const { data, files } = remapBackup(backup, user.id, randomId)
+    // รูปถูกนำไปแสดงเป็น <img src> ต้องผ่านกติกาเดียวกับตอนอัปโหลด ไฟล์ที่ถูกแก้มาให้ตัดรูปทิ้ง
+    for (const ws of data.workspaces) {
+      for (const field of ['avatarUrl', 'coverUrl'] as const) {
+        try {
+          ws[field] = checkPhoto(typeof ws[field] === 'string' ? ws[field] : '', '')
+        } catch {
+          ws[field] = ''
+        }
+      }
+    }
+
+    // เก็บไฟล์ใหม่ให้ได้ก่อน ถ้าพังกลางทางข้อมูลเดิมยังอยู่ครบ
+    const stored: string[] = []
+    for (const [id, url] of Object.entries(files)) {
+      if (!(await fileStore.put(id, dataUrlToBlob(url)))) {
+        await fileStore.removeMany(stored)
+        throw new ApiError('เบราว์เซอร์นี้เก็บไฟล์หลักฐานไม่ได้ ลองปิดโหมดส่วนตัวแล้วกู้คืนใหม่')
+      }
+      stored.push(id)
+    }
+
+    const oldEvidence = db.evidence.filter((e) => e.userId === user.id).map((e) => e.id)
+    const others = <T extends { userId: string }>(rows: T[]) => rows.filter((r) => r.userId !== user.id)
+    db.filings = [...others(db.filings), ...(data.filings as unknown as Filing[])]
+    db.documents = [...others(db.documents), ...(data.documents as unknown as DocumentRecord[])]
+    db.workspaces = [...others(db.workspaces), ...(data.workspaces as unknown as Workspace[])]
+    db.entries = [...others(db.entries), ...(data.entries as unknown as EntryRecord[])]
+    db.goals = [...others(db.goals), ...(data.goals as unknown as GoalRecord[])]
+    db.evidence = [...others(db.evidence), ...(data.evidence as unknown as EvidenceRecord[])]
+    db.recurring = [...others(db.recurring), ...(data.recurring as unknown as RecurringRecord[])]
+    db.challenges = [...others(db.challenges), ...(data.challenges as unknown as ChallengeRecord[])]
+    try {
+      writeDatabaseOrThrow(db)
+    } catch (error) {
+      await fileStore.removeMany(stored)
+      throw error
+    }
+    await fileStore.removeMany(oldEvidence)
+    return delay(backupCounts(data))
   },
 }
 

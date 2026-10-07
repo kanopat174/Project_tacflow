@@ -104,7 +104,7 @@ function removePhoto(kind: PhotoKind) {
 <template>
   <main id="main-content" tabindex="-1" class="section">
     <div class="container">
-      <RouterLink to="/workspaces" class="small no-print">
+      <RouterLink to="/workspaces" class="back-link small no-print">
         <AppIcon name="arrowLeft" :size="15" />
         สมุดทั้งหมด
       </RouterLink>

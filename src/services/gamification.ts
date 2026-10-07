@@ -13,6 +13,7 @@ import {
   type GoalProgress,
 } from './ledgerEngine'
 import { roundMoney } from './taxEngine'
+import { isEarlyFiler } from './seasons'
 import type { ChallengeRecord, EntryRecord, Filing, GoalRecord, Workspace } from './api'
 
 /* ---------- วันที่ ---------- */
@@ -165,6 +166,14 @@ export const ACHIEVEMENTS: Achievement[] = [
     check: (d) => goalStatuses(d).some((g) => g.achieved),
   },
   { id: 'first-filing', title: 'พร้อมยื่นภาษี', description: 'บันทึกสรุปแบบภาษีครั้งแรก', icon: '🧾', xp: 120, check: (d) => d.filings.length >= 1 },
+  {
+    id: 'early-filer',
+    title: 'นักยื่นไว',
+    description: 'บันทึกสรุปแบบภาษีก่อน 1 มีนาคม แล้วยื่นจริงเรียบร้อย — ได้เหรียญนักยื่นไวไว้แต่งตัว',
+    icon: '⚡',
+    xp: 200,
+    check: (d) => isEarlyFiler(d.filings),
+  },
   { id: 'refund', title: 'ได้เงินคืน', description: 'มีแบบภาษีที่ขอคืนภาษีได้', icon: '💸', xp: 150, check: (d) => d.filings.some((f) => f.balance < 0) },
   { id: 'deduction-max', title: 'ลดหย่อนเต็มสิทธิ', description: 'ใช้สิทธิลดหย่อนที่ซื้อเพิ่มเองได้ครบ', icon: '💎', xp: 200, check: (d) => d.deductionMaxed },
   { id: 'quiz-perfect', title: 'เซียนภาษี', description: 'ตอบควิซภาษีถูกครบ 5 ข้อ', icon: '🧠', xp: 150, check: (d) => d.quizBest >= 5 },
@@ -193,15 +202,22 @@ export function earnedAchievements(data: GameData, streak = computeStreak(data.e
 /** XP ที่ต้องมีเพื่อขึ้นแต่ละเลเวล (index 0 = เลเวล 1) */
 export const LEVEL_XP = [0, 150, 400, 800, 1300, 2000, 3000]
 
-export type Accessory = 'none' | 'bow' | 'glasses' | 'scarf' | 'hat' | 'crown'
+export type Accessory = 'none' | 'bow' | 'glasses' | 'scarf' | 'hat' | 'crown' | 'santa' | 'garland' | 'medal'
 
-export const ACCESSORIES: { key: Accessory; label: string; level: number }[] = [
+/**
+ * level คือเลเวลที่ปลดล็อก — null คือของพิเศษที่ได้ทางอื่น (unlockHint บอกวิธี)
+ * ของเทศกาลได้เมื่อเปิดเว็บช่วงเทศกาล ส่วนเหรียญนักยื่นไวได้จากเหรียญรางวัล "นักยื่นไว"
+ */
+export const ACCESSORIES: { key: Accessory; label: string; level: number | null; unlockHint?: string }[] = [
   { key: 'none', label: 'ไม่ใส่', level: 1 },
   { key: 'bow', label: 'โบว์', level: 2 },
   { key: 'glasses', label: 'แว่นตา', level: 3 },
   { key: 'scarf', label: 'ผ้าพันคอ', level: 4 },
   { key: 'hat', label: 'หมวกปาร์ตี้', level: 5 },
   { key: 'crown', label: 'มงกุฎ', level: 6 },
+  { key: 'santa', label: 'หมวกซานต้า', level: null, unlockHint: 'แจก 20 ธ.ค. – 5 ม.ค.' },
+  { key: 'garland', label: 'พวงมาลัยสงกรานต์', level: null, unlockHint: 'แจก 10 – 20 เม.ย.' },
+  { key: 'medal', label: 'เหรียญนักยื่นไว', level: null, unlockHint: 'ยื่นภาษีก่อน 1 มี.ค.' },
 ]
 
 export interface LevelInfo {
@@ -234,8 +250,9 @@ export function levelOf(xp: number): LevelInfo {
   }
 }
 
-export function unlockedAccessories(level: number): Accessory[] {
-  return ACCESSORIES.filter((a) => a.level <= level).map((a) => a.key)
+/** ของที่ใส่ได้: ตามเลเวล รวมกับของพิเศษที่สะสมไว้แล้ว */
+export function unlockedAccessories(level: number, collected: Accessory[] = []): Accessory[] {
+  return ACCESSORIES.filter((a) => (a.level !== null && a.level <= level) || collected.includes(a.key)).map((a) => a.key)
 }
 
 /* ---------- อารมณ์ของตัวการ์ตูน ---------- */

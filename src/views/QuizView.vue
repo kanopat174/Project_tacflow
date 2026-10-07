@@ -7,10 +7,15 @@ import { pickQuestions, QUIZ_ROUND_SIZE, type QuizQuestion } from '@/data/taxQui
 import { useTheme } from '@/composables/useTheme'
 import { useAuthStore } from '@/stores/auth'
 import { useGameStore } from '@/stores/game'
+import { useFx } from '@/composables/useFx'
+import { centerOf } from '@/services/fx'
+import { useMascotFxStore } from '@/stores/mascotFx'
 
 const theme = useTheme()
 const auth = useAuthStore()
 const game = useGameStore()
+const fx = useFx()
+const mascotFx = useMascotFxStore()
 
 const questions = ref<QuizQuestion[]>(pickQuestions())
 const index = ref(0)
@@ -29,9 +34,20 @@ const verdict = computed(() => {
   return { mood: 'normal' as const, text: 'ไม่เป็นไร ลองอีกรอบ คำถามจะสุ่มใหม่' }
 })
 
-function choose(i: number) {
+function choose(i: number, event?: Event) {
   if (answered.value) return
   picked.value[index.value] = i
+  // ถูก: ดาวกระจายตรงปุ่มที่ตอบ · ผิด: ปุ่มส่ายหัว · ตัวการ์ตูนมุมขวาล่างชมหรือให้กำลังใจ
+  const button = event?.currentTarget as HTMLElement | undefined
+  if (i === current.value.answer) {
+    fx.sparkle(centerOf(button))
+    mascotFx.react('quiz-right')
+  } else {
+    button?.classList.remove('fx-shake')
+    void button?.offsetWidth // เริ่มแอนิเมชันใหม่ถ้ากดซ้ำ
+    button?.classList.add('fx-shake')
+    mascotFx.react('quiz-wrong')
+  }
 }
 
 function next() {
@@ -90,7 +106,7 @@ function restart() {
                   correct: answered && i === current.answer,
                   wrong: answered && answer === i && i !== current.answer,
                 }"
-                @click="choose(i)"
+                @click="choose(i, $event)"
               >
                 <span class="quiz-letter">{{ 'กขค'[i] }}</span>
                 {{ choice }}

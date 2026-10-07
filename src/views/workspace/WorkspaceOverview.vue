@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+import MonthlyChart from '@/components/MonthlyChart.vue'
 import { formatBaht, formatPercent } from '@/services/taxEngine'
 import { useLedgerStore } from '@/stores/ledger'
 
@@ -23,11 +24,6 @@ const RUNWAY_BADGE: Record<string, string> = {
 }
 
 const hasData = computed(() => ledger.summary.entryCount > 0)
-
-/** สเกลกราฟแท่งรายเดือน อิงยอดสูงสุดที่พบ */
-const chartMax = computed(() =>
-  Math.max(1, ...ledger.months.flatMap((m) => [m.income, m.expense])),
-)
 
 const runwayMonthsText = computed(() =>
   Number.isFinite(ledger.runway.months) ? `${ledger.runway.months.toFixed(1)} เดือน` : 'ไม่จำกัด',
@@ -171,29 +167,10 @@ const runwayPercent = computed(() => {
         <div class="card-head">
           <div>
             <h3>รายรับรายจ่ายรายเดือน</h3>
-            <p>แท่งซ้ายคือรายรับ แท่งขวาคือรายจ่าย</p>
+            <p>ชี้หรือแตะแท่งเพื่อดูตัวเลขของเดือนนั้น</p>
           </div>
         </div>
-        <div class="bar-chart">
-          <div v-for="point in ledger.months" :key="point.month" class="bar-group">
-            <div class="bars">
-              <span
-                class="bar income"
-                :style="{ height: `${(point.income / chartMax) * 100}%` }"
-                :title="`รายรับ ${formatBaht(point.income)}`"
-              ></span>
-              <span
-                class="bar expense"
-                :style="{ height: `${(point.expense / chartMax) * 100}%` }"
-                :title="`รายจ่าย ${formatBaht(point.expense)}`"
-              ></span>
-            </div>
-            <span class="label small muted">{{ point.month }}</span>
-            <span class="small" :class="point.net >= 0 ? 'text-ok' : 'text-bad'">
-              {{ formatBaht(point.net) }}
-            </span>
-          </div>
-        </div>
+        <MonthlyChart :points="ledger.months" />
       </section>
 
       <!-- หมวดที่ใช้เงินมากที่สุด -->

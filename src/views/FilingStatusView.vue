@@ -5,11 +5,20 @@ import AppIcon from '@/components/AppIcon.vue'
 import TaxDocument, { type DocumentSection } from '@/components/TaxDocument.vue'
 import { E_FILING_URL, STATUS_FLOW, STATUS_META } from '@/data/filingStatus'
 import { ApiError, api, type Filing, type FilingStatus } from '@/services/api'
+import {
+  DEFAULT_PAYMENT_PLAN,
+  canPayInInstallments,
+  paymentSchedule,
+  type PaymentPlan,
+} from '@/services/latePayment'
 import { formatBaht, thaiDate } from '@/services/taxEngine'
+import { localToday } from '@/stores/ledger'
+import { useGameStore } from '@/stores/game'
 import { useToastStore } from '@/stores/toast'
 
 const route = useRoute()
 const toast = useToastStore()
+const game = useGameStore()
 
 const filing = ref<Filing | null>(null)
 const loading = ref(true)
@@ -47,6 +56,46 @@ const currentIndex = computed(() =>
 
 const isRefund = computed(() => (filing.value?.balance ?? 0) < 0)
 const isDue = computed(() => (filing.value?.balance ?? 0) > 0)
+
+/* ---------- แผนการชำระ ---------- */
+
+const today = localToday()
+const plan = computed<PaymentPlan>(() => filing.value?.payment ?? DEFAULT_PAYMENT_PLAN)
+const schedule = computed(() =>
+  filing.value ? paymentSchedule(filing.value.balance, filing.value.taxYear, plan.value, today) : [],
+)
+const canSplit = computed(() => canPayInInstallments(filing.value?.balance ?? 0))
+const outstandingSurcharge = computed(() =>
+  schedule.value.filter((r) => r.status !== 'upcoming').reduce((sum, r) => sum + r.surcharge, 0),
+)
+const savingPlan = ref(false)
+
+async function savePlan(patch: Partial<PaymentPlan>) {
+  if (!filing.value) return
+  const next = { ...plan.value, ...patch }
+  // เปลี่ยนจำนวนงวดแล้ววันที่จ่ายของงวดเดิมไม่ตรงกันอีก เริ่มนับใหม่
+  if (patch.mode && patch.mode !== plan.value.mode) next.paidDates = []
+  savingPlan.value = true
+  try {
+    filing.value = await api.updatePayment(filing.value.reference, next)
+    game.scheduleRefresh(0)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'บันทึกแผนการชำระไม่สำเร็จ')
+  } finally {
+    savingPlan.value = false
+  }
+}
+
+function togglePaid(index: number) {
+  const paidDates = [...plan.value.paidDates]
+  paidDates[index] = paidDates[index] ? '' : today
+  savePlan({ paidDates })
+}
+
+function countdown(days: number): string {
+  if (days === 0) return 'ครบกำหนดวันนี้'
+  return days > 0 ? `อีก ${days} วัน` : `เลยมา ${-days} วัน`
+}
 
 const documentSections = computed<DocumentSection[]>(() => {
   const f = filing.value
@@ -195,6 +244,79 @@ onMounted(load)
                 >
                   เปิด e-Filing กรมสรรพากร
                 </a>
+              </div>
+            </section>
+
+            <section v-if="isDue" class="card">
+              <div class="card-head">
+                <div>
+                  <h3>แผนการชำระ {{ formatBaht(filing.balance) }}</h3>
+                  <p>
+                    {{ canSplit ? 'ยื่นทันกำหนดผ่อนได้ 3 งวดโดยไม่มีเงินเพิ่ม' : 'ยอดต่ำกว่า 3,000 บาท ต้องชำระครั้งเดียว' }}
+                    · กดจ่ายแล้วเพื่อให้ระบบหยุดเตือน
+                  </p>
+                </div>
+              </div>
+
+              <div class="row mb-2 no-print" style="gap: 8px; flex-wrap: wrap">
+                <select
+                  :value="plan.mode"
+                  aria-label="รูปแบบการชำระ"
+                  :disabled="savingPlan"
+                  @change="savePlan({ mode: ($event.target as HTMLSelectElement).value as PaymentPlan['mode'] })"
+                >
+                  <option value="single">ชำระครั้งเดียว</option>
+                  <option value="installments" :disabled="!canSplit">ผ่อน 3 งวด</option>
+                </select>
+                <select
+                  :value="plan.channel"
+                  aria-label="ช่องทางยื่น"
+                  :disabled="savingPlan"
+                  @change="savePlan({ channel: ($event.target as HTMLSelectElement).value as PaymentPlan['channel'] })"
+                >
+                  <option value="online">ยื่นออนไลน์ (กำหนด 8 เม.ย.)</option>
+                  <option value="paper">ยื่นกระดาษ (กำหนด 31 มี.ค.)</option>
+                </select>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>งวด</th>
+                      <th>ครบกำหนด</th>
+                      <th class="right">จำนวนเงิน</th>
+                      <th>สถานะ</th>
+                      <th class="no-print"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, i) in schedule" :key="row.index">
+                      <td>{{ schedule.length > 1 ? `งวดที่ ${row.index}` : 'ชำระครั้งเดียว' }}</td>
+                      <td>{{ thaiDate(row.dueDate) }}</td>
+                      <td class="money">{{ formatBaht(row.amount) }}</td>
+                      <td>
+                        <span v-if="row.status === 'paid'" class="badge badge-ok">จ่ายแล้ว {{ thaiDate(row.paidDate) }}</span>
+                        <span v-else-if="row.status === 'overdue'" class="badge badge-bad">{{ countdown(row.daysLeft) }}</span>
+                        <span v-else class="badge" :class="row.daysLeft <= 7 ? 'badge-warn' : ''">{{ countdown(row.daysLeft) }}</span>
+                        <small v-if="row.surcharge > 0" class="small muted"> · เงินเพิ่ม {{ formatBaht(row.surcharge) }}</small>
+                      </td>
+                      <td class="no-print">
+                        <button class="btn btn-ghost btn-sm" type="button" :disabled="savingPlan" @click="togglePaid(i)">
+                          {{ row.paidDate ? 'ยกเลิก' : 'จ่ายแล้ว' }}
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-if="outstandingSurcharge > 0" class="notice notice-warn mt-2">
+                <strong>มีเงินเพิ่ม {{ formatBaht(outstandingSurcharge) }}</strong>
+                เพราะชำระเลยกำหนด 1.5% ต่อเดือนหรือเศษของเดือน ยิ่งจ่ายเร็วยิ่งเสียน้อย
+                <RouterLink :to="{ path: '/calculator/late-payment', query: { tax: filing.balance, year: filing.taxYear } }">
+                  ดูรายละเอียดและค่าปรับ
+                </RouterLink>
               </div>
             </section>
 

@@ -9,7 +9,8 @@ withDefaults(defineProps<{ references: LegalReference[]; title?: string }>(), {
 </script>
 
 <template>
-  <details class="card legal-refs" open>
+  <!-- ปิดไว้ก่อน ผู้ที่อยากอ่านข้อกฎหมายกดเปิดเอง หน้าแบบภาษีจะได้ไม่ยาวเกินจำเป็น -->
+  <details class="card legal-refs">
     <summary>
       <span class="ico"><AppIcon name="scale" :size="20" /></span>
       <span class="txt">

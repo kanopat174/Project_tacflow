@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import MoneyField from '@/components/MoneyField.vue'
 import TaxSummaryCard from '@/components/TaxSummaryCard.vue'
+import TaxWaterfall from '@/components/TaxWaterfall.vue'
 import TaxDocument, { type DocumentSection } from '@/components/TaxDocument.vue'
 import { DEDUCTION_ITEMS, DEFAULT_TAX_YEAR, INCOME_CATEGORIES, TAX_YEARS } from '@/data/taxData'
 import { revenueCodeUrl } from '@/data/taxLaw'
@@ -320,6 +321,8 @@ function resetAll() {
             การลงทุนในกองทุนลดหย่อนหรือซื้อประกันจึงคืนกลับมาในอัตรานี้
           </div>
         </section>
+
+        <TaxWaterfall :result="result" />
 
         <div class="actions-bar">
           <button class="btn btn-ghost" type="button" @click="resetAll">

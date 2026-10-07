@@ -21,7 +21,7 @@ import {
 import { api, type Filing } from '@/services/api'
 import { useAuthStore } from './auth'
 
-const DRAFT_KEY = 'taxflow_draft_v1'
+export const DRAFT_KEY = 'taxflow_draft_v1'
 
 export type StepId = 1 | 2 | 3 | 4
 

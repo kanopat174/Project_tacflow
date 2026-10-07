@@ -7,6 +7,22 @@ import { useGameStore, type AppNotification } from '@/stores/game'
 
 const game = useGameStore()
 const router = useRouter()
+
+/** แจ้งเตือนใหม่เพิ่มขึ้น กระดิ่งสั่นให้รู้ (ไม่สั่นตอนโหลดครั้งแรก) */
+const ringing = ref(false)
+let ringTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => game.unreadCount,
+  (now, before) => {
+    if (before === undefined || now <= before) return
+    ringing.value = false
+    clearTimeout(ringTimer)
+    requestAnimationFrame(() => {
+      ringing.value = true
+      ringTimer = setTimeout(() => (ringing.value = false), 1900)
+    })
+  },
+)
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 
@@ -49,6 +65,7 @@ onBeforeUnmount(() => {
   <div ref="root" class="notify">
     <button
       class="bell-toggle"
+      :class="{ 'bell-ring': ringing }"
       type="button"
       :aria-expanded="open"
       :aria-label="game.unreadCount ? `การแจ้งเตือน ${game.unreadCount} รายการใหม่` : 'การแจ้งเตือน'"

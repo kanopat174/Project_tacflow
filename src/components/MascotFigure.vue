@@ -87,6 +87,36 @@ const INK = '#5b3a4a'
         <circle cy="-31" r="4.5" fill="#ffd866" />
       </g>
 
+      <!-- ของเทศกาลและของรางวัล -->
+      <g v-if="accessory === 'santa'" :transform="`translate(60 ${a.headTop + 4})`" :stroke="INK" stroke-width="2.4" stroke-linejoin="round">
+        <path d="M-18 0 C-14 -22 6 -30 20 -20 L13 -12 C6 -18 -4 -14 -6 0 Z" fill="#e8434f" />
+        <rect x="-21" y="-4" width="40" height="9" rx="4.5" fill="#fff" />
+        <circle cx="21" cy="-20" r="5" fill="#fff" />
+      </g>
+
+      <g v-if="accessory === 'garland'" :stroke="INK" stroke-width="2" stroke-linejoin="round">
+        <path
+          :d="`M${60 - a.neckW / 2} ${a.neckY - 3} Q60 ${a.neckY + 18} ${60 + a.neckW / 2} ${a.neckY - 3}`"
+          fill="none"
+          stroke="#7fbf6a"
+          stroke-width="3"
+        />
+        <circle
+          v-for="t in [0.15, 0.32, 0.5, 0.68, 0.85]"
+          :key="t"
+          :cx="60 - a.neckW / 2 + a.neckW * t"
+          :cy="a.neckY - 3 + 4 * 10.5 * t * (1 - t)"
+          r="3.6"
+          :fill="t === 0.5 ? '#ff6f9f' : '#fffbe8'"
+        />
+      </g>
+
+      <g v-if="accessory === 'medal'" :transform="`translate(60 ${a.neckY})`" :stroke="INK" stroke-width="2.2" stroke-linejoin="round">
+        <path d="M-8 -6 L-3 8 M8 -6 L3 8" stroke="#4f8fe8" stroke-width="3.4" />
+        <circle cy="14" r="7.5" fill="#ffd34d" />
+        <path d="M1 9 l-4 6 h4 l-2 5" fill="none" stroke-width="1.8" />
+      </g>
+
       <g v-if="accessory === 'crown'" :transform="`translate(60 ${a.headTop + 3})`" :stroke="INK" stroke-width="2.4" stroke-linejoin="round">
         <path d="M-16 0 L-16 -16 L-8 -8 L0 -20 L8 -8 L16 -16 L16 0 Z" fill="#ffd34d" />
         <circle cy="-6" r="2.6" fill="#ff6f9f" stroke="none" />

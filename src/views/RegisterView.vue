@@ -68,8 +68,8 @@ async function submit() {
       citizenId: form.citizenId,
       phone: form.phone,
     })
-    toast.success('สมัครสมาชิกเรียบร้อย เริ่มยื่นแบบภาษีได้เลย')
-    router.push('/filing')
+    toast.success('สมัครสมาชิกเรียบร้อย ตอบ 5 คำถามแล้วเริ่มใช้งานได้เลย')
+    router.push('/welcome')
   } catch (error) {
     errorMessage.value =
       error instanceof ApiError ? error.message : 'สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่'

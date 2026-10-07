@@ -3,13 +3,16 @@
  * ตัวการ์ตูนผู้ช่วยมุมขวาล่าง — ถามว่า "วันนี้จะทำเรื่องอะไรเอ่ย?" แล้วแนะนำต่อเป็นขั้น ๆ
  * ใช้ตัวการ์ตูนที่ผู้ใช้เลือกในธีม และสร้างคำแนะนำจากตัวเลขจริงของผู้ใช้
  */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import MascotFigure from './MascotFigure.vue'
 import { useGameStore } from '@/stores/game'
 import { GUIDE_FLOW, type GuideAction, type GuideContext, type GuideOption } from '@/data/guideFlow'
 import { findMascot } from '@/data/mascot'
+import { HOVER_LINES, IDLE_LINES, MASCOT_SOUND, TICKLE_LINES, pick } from '@/data/mascotLines'
+import { burst, centerOf, motionAllowed } from '@/services/fx'
+import { useMascotFxStore } from '@/stores/mascotFx'
 import { useTheme } from '@/composables/useTheme'
 import { daysUntilYearEnd, suggestDeductions } from '@/services/deductionAdvisor'
 import { upcomingDeadlines } from '@/services/taxCalendar'
@@ -134,6 +137,148 @@ onBeforeUnmount(() => {
   clearTimeout(timer)
   document.removeEventListener('keydown', onKeydown)
 })
+
+/* =========================================================
+   ลูกเล่นของตัวการ์ตูน: ชี้แล้วพูด · จี้แล้วหัวเราะ · หันตามเมาส์ · ง่วงเมื่อปล่อยไว้นาน · ตอบสนองต่อสิ่งที่ผู้ใช้ทำ
+   ========================================================= */
+
+const fx = useMascotFxStore()
+const fab = ref<HTMLButtonElement | null>(null)
+const say = ref('')
+const move = ref<'' | 'hop' | 'jump' | 'shake' | 'spin' | 'tickle' | 'sleepy'>('')
+/** มุมเอียงหน้าไปทางเมาส์ (องศา) */
+const look = ref(0)
+let sayTimer: ReturnType<typeof setTimeout> | undefined
+let moveTimer: ReturnType<typeof setTimeout> | undefined
+
+function speak(text: string, ms = 2800) {
+  if (open.value) return
+  say.value = `${MASCOT_SOUND[mascot.value.key]} ${text}`
+  clearTimeout(sayTimer)
+  sayTimer = setTimeout(() => (say.value = ''), ms)
+}
+function play(kind: typeof move.value, ms = 900) {
+  if (!motionAllowed()) return
+  // ล้างก่อนแล้วใส่ใหม่ในเฟรมถัดไป ท่าเดิมซ้ำติดกันจะได้เล่นใหม่
+  move.value = ''
+  clearTimeout(moveTimer)
+  requestAnimationFrame(() => {
+    move.value = kind
+    moveTimer = setTimeout(() => (move.value = ''), ms)
+  })
+}
+
+/* ชี้ */
+function onEnter() {
+  wakeUp()
+  if (open.value) return
+  speak(pick(HOVER_LINES))
+  play('hop', 600)
+}
+
+/* จี้: ส่ายเมาส์ไปมาบนตัว (คอม) หรือกดค้าง (มือถือ) */
+let wiggle = { dist: 0, since: 0, x: 0, y: 0 }
+let tickleCooldown = 0
+let pressTimer: ReturnType<typeof setTimeout> | undefined
+let suppressClick = false
+
+function tickle() {
+  if (Date.now() < tickleCooldown) return
+  tickleCooldown = Date.now() + 2500
+  speak(pick(TICKLE_LINES), 2200)
+  play('tickle', 1100)
+  burst(centerOf(fab.value), { items: ['💗', '✨', '💕'], count: 8, spread: 70, upward: false, size: 16 })
+}
+function onFabMove(event: PointerEvent) {
+  if (event.pointerType !== 'mouse') return
+  const now = Date.now()
+  if (now - wiggle.since > 1200) wiggle = { dist: 0, since: now, x: event.clientX, y: event.clientY }
+  wiggle.dist += Math.hypot(event.clientX - wiggle.x, event.clientY - wiggle.y)
+  wiggle.x = event.clientX
+  wiggle.y = event.clientY
+  if (wiggle.dist > 380) {
+    wiggle.dist = 0
+    tickle()
+  }
+}
+function onFabDown(event: PointerEvent) {
+  if (event.pointerType === 'mouse') return
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => {
+    suppressClick = true
+    tickle()
+  }, 480)
+}
+function onFabUp() {
+  clearTimeout(pressTimer)
+}
+function onFabClick() {
+  // กดค้างเพื่อจี้แล้ว ไม่ต้องเปิดแชทตามมา
+  if (suppressClick) {
+    suppressClick = false
+    return
+  }
+  say.value = ''
+  play('hop', 500)
+  void toggle()
+}
+
+/* หันตามเมาส์ */
+let lookFrame = 0
+function onWindowMove(event: MouseEvent) {
+  cancelAnimationFrame(lookFrame)
+  lookFrame = requestAnimationFrame(() => {
+    if (!fab.value || open.value) return (look.value = 0)
+    const c = centerOf(fab.value)
+    // ยิ่งเมาส์ไกลไปทางไหน ยิ่งเอียงหน้าไปทางนั้น สูงสุด 14 องศา
+    look.value = Math.max(-14, Math.min(14, (event.clientX - c.x) / 40))
+  })
+}
+
+/* ง่วงเมื่อปล่อยไว้นาน */
+const IDLE_MS = 75_000
+let idleTimer: ReturnType<typeof setTimeout> | undefined
+let sleeping = false
+function wakeUp() {
+  clearTimeout(idleTimer)
+  if (sleeping) {
+    sleeping = false
+    if (move.value === 'sleepy') move.value = ''
+  }
+  idleTimer = setTimeout(() => {
+    sleeping = true
+    speak(pick(IDLE_LINES), 4000)
+    if (motionAllowed()) move.value = 'sleepy'
+  }, IDLE_MS)
+}
+
+/* ตอบสนองต่อสิ่งที่ผู้ใช้ทำทั้งเว็บ */
+watch(
+  () => fx.last?.id,
+  () => {
+    const r = fx.last
+    if (!r) return
+    wakeUp()
+    speak(r.line, 2600)
+    play(r.move, r.move === 'spin' ? 1000 : 800)
+  },
+)
+
+const ACTIVITY = ['pointerdown', 'keydown', 'scroll'] as const
+onMounted(() => {
+  window.addEventListener('mousemove', onWindowMove, { passive: true })
+  for (const e of ACTIVITY) window.addEventListener(e, wakeUp, { passive: true })
+  wakeUp()
+})
+onBeforeUnmount(() => {
+  clearTimeout(sayTimer)
+  clearTimeout(moveTimer)
+  clearTimeout(idleTimer)
+  clearTimeout(pressTimer)
+  cancelAnimationFrame(lookFrame)
+  window.removeEventListener('mousemove', onWindowMove)
+  for (const e of ACTIVITY) window.removeEventListener(e, wakeUp)
+})
 </script>
 
 <template>
@@ -196,16 +341,33 @@ onBeforeUnmount(() => {
       </section>
     </Transition>
 
+    <!-- คำพูดเล่น ๆ ของตัวการ์ตูน เป็นของตกแต่ง โปรแกรมอ่านหน้าจอไม่ต้องอ่าน (ข้อความสำคัญมี toast อยู่แล้ว) -->
+    <Transition name="say-pop">
+      <span v-if="say && !open" :key="say" class="guide-say" aria-hidden="true">{{ say }}</span>
+    </Transition>
     <button
+      ref="fab"
       class="guide-fab"
-      :class="{ active: open }"
+      :class="[{ active: open }, move ? `do-${move}` : '']"
+      :style="{ '--look': `${look}deg` }"
       type="button"
       :aria-expanded="open"
       :aria-label="open ? 'ปิดผู้ช่วย' : `คุยกับ${mascot.label}`"
-      :title="open ? 'ปิดผู้ช่วย' : 'วันนี้จะทำเรื่องอะไรเอ่ย?'"
-      @click="toggle"
+      @pointerenter="onEnter"
+      @pointermove="onFabMove"
+      @pointerdown="onFabDown"
+      @pointerup="onFabUp"
+      @pointercancel="onFabUp"
+      @click="onFabClick"
     >
-      <MascotFigure :mascot="mascot.key" :size="50" :mood="game.mood.mood" :accessory="game.equipped" />
+      <span class="guide-fab-body">
+        <MascotFigure
+          :mascot="mascot.key"
+          :size="50"
+          :mood="move === 'tickle' || move === 'jump' ? 'happy' : move === 'sleepy' ? 'sleepy' : game.mood.mood"
+          :accessory="game.equipped"
+        />
+      </span>
     </button>
   </div>
 </template>

@@ -74,6 +74,12 @@ const router = createRouter({
           meta: { title: 'คำนวณภาษีครึ่งปี ภ.ง.ด.94' },
         },
         {
+          path: 'late-payment',
+          name: 'calculator-late-payment',
+          component: () => import('@/views/calculators/LatePaymentCalculatorView.vue'),
+          meta: { title: 'คำนวณเงินเพิ่มและค่าปรับยื่นภาษีล่าช้า' },
+        },
+        {
           path: 'what-if',
           name: 'calculator-what-if',
           component: () => import('@/views/calculators/WhatIfCalculatorView.vue'),
@@ -164,6 +170,18 @@ const router = createRouter({
       name: 'wrapped',
       component: () => import('@/views/WrappedView.vue'),
       meta: { title: 'สรุปปีของฉัน', requiresAuth: true },
+    },
+    {
+      path: '/glossary',
+      name: 'glossary',
+      component: () => import('@/views/GlossaryView.vue'),
+      meta: { title: 'คำศัพท์ภาษี' },
+    },
+    {
+      path: '/welcome',
+      name: 'welcome',
+      component: () => import('@/views/WelcomeView.vue'),
+      meta: { title: 'เริ่มต้นใช้งาน', requiresAuth: true },
     },
     {
       path: '/quiz',

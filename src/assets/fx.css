@@ -1,0 +1,349 @@
+/* =========================================================
+   ลูกเล่นเล็ก ๆ ทั้งเว็บ (คู่กับ services/fx.ts)
+   ทุกอย่างปิดเองเมื่อผู้ใช้ตั้งค่าลดการเคลื่อนไหว — ดูท้ายไฟล์
+   ========================================================= */
+
+#fx-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 200;
+  overflow: hidden;
+}
+
+/* ---------- อนุภาคกระจาย (เหรียญ หัวใจ ดาว) ---------- */
+.fx-particle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  line-height: 1;
+  animation: fx-fly 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+@keyframes fx-fly {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy) + 40px)) rotate(var(--rot)) scale(1);
+    opacity: 0;
+  }
+}
+
+/* ---------- ตัวเลขลอยขึ้น "+฿65" ---------- */
+.fx-float {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-data);
+  font-weight: 700;
+  font-size: 20px;
+  white-space: nowrap;
+  text-shadow: 0 2px 8px color-mix(in srgb, var(--surface) 80%, transparent);
+  animation: fx-rise 1.2s var(--ease-out) forwards;
+}
+.fx-float.ok {
+  color: var(--ok);
+}
+.fx-float.bad {
+  color: var(--bad);
+}
+.fx-float.accent {
+  color: var(--accent-strong);
+}
+@keyframes fx-rise {
+  0% {
+    transform: translate(-50%, -30%) scale(0.7);
+    opacity: 0;
+  }
+  20% {
+    transform: translate(-50%, -80%) scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -260%) scale(1);
+    opacity: 0;
+  }
+}
+
+/* ---------- ระลอกคลื่นตอนกด ---------- */
+.fx-ripple-host {
+  overflow: hidden;
+  isolation: isolate;
+}
+.fx-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.18;
+  transform: scale(0);
+  pointer-events: none;
+  z-index: -1;
+  animation: fx-ripple 0.55s ease-out forwards;
+}
+@keyframes fx-ripple {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* ---------- ตัวการ์ตูนมุมขวาล่าง ---------- */
+.guide-fab-body {
+  display: block;
+  transform: rotate(var(--look, 0deg));
+  transition: transform 0.35s var(--ease-out);
+}
+.guide-fab-body > * {
+  display: block;
+  transform-origin: 50% 85%;
+}
+.guide-fab:active .guide-fab-body > * {
+  transform: scale(0.88, 0.82);
+  transition: transform 0.08s ease;
+}
+.guide-fab.do-hop .guide-fab-body > * {
+  animation: m-hop 0.5s var(--ease-spring);
+}
+.guide-fab.do-jump .guide-fab-body > * {
+  animation: m-jump 0.75s var(--ease-spring);
+}
+.guide-fab.do-shake .guide-fab-body > * {
+  animation: m-shake 0.6s ease-in-out;
+}
+.guide-fab.do-spin .guide-fab-body > * {
+  animation: m-spin 0.9s var(--ease-out);
+}
+.guide-fab.do-tickle .guide-fab-body > * {
+  animation: m-tickle 0.18s ease-in-out 6;
+}
+.guide-fab.do-sleepy .guide-fab-body > * {
+  animation: m-breathe 3s ease-in-out infinite;
+}
+/* ขณะเล่นท่าทาง ไม่ต้องส่ายตามจังหวะปกติ */
+.guide-fab[class*='do-'] {
+  animation: none;
+}
+@keyframes m-hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-8px) scale(1.04, 0.96);
+  }
+  70% {
+    transform: translateY(0) scale(1.06, 0.92);
+  }
+}
+@keyframes m-jump {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  15% {
+    transform: translateY(2px) scale(1.12, 0.86);
+  }
+  45% {
+    transform: translateY(-22px) scale(0.94, 1.08) rotate(-6deg);
+  }
+  75% {
+    transform: translateY(0) scale(1.08, 0.9);
+  }
+}
+@keyframes m-shake {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  20% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+  60% {
+    transform: rotate(-8deg);
+  }
+  80% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes m-spin {
+  0% {
+    transform: rotate(0) scale(1);
+  }
+  50% {
+    transform: rotate(200deg) scale(1.15);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+@keyframes m-tickle {
+  0%,
+  100% {
+    transform: rotate(0) translateX(0);
+  }
+  25% {
+    transform: rotate(-10deg) translateX(-2px);
+  }
+  75% {
+    transform: rotate(10deg) translateX(2px);
+  }
+}
+@keyframes m-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04, 0.97);
+  }
+}
+
+/* กล่องคำพูดเหนือตัวการ์ตูน */
+.guide-say {
+  position: absolute;
+  right: 6px;
+  bottom: calc(100% + 10px);
+  max-width: min(240px, 70vw);
+  padding: 9px 13px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  line-height: 1.45;
+  pointer-events: none;
+  white-space: normal;
+}
+:root[data-style='cute'] .guide-say {
+  border: 2.5px solid var(--cute-ink);
+}
+.guide {
+  position: fixed;
+}
+.say-pop-enter-active {
+  transition: opacity 0.18s ease, transform 0.25s var(--ease-spring);
+}
+.say-pop-leave-active {
+  transition: opacity 0.15s ease;
+}
+.say-pop-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.9);
+}
+.say-pop-leave-to {
+  opacity: 0;
+}
+
+/* ---------- กระดิ่งสั่นเมื่อมีแจ้งเตือนใหม่ ---------- */
+.bell-ring svg {
+  transform-origin: 50% 10%;
+  animation: bell-ring 0.9s ease-in-out 2;
+}
+@keyframes bell-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  15% {
+    transform: rotate(18deg);
+  }
+  30% {
+    transform: rotate(-16deg);
+  }
+  45% {
+    transform: rotate(10deg);
+  }
+  60% {
+    transform: rotate(-6deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+
+/* ---------- เมนูด้านข้าง: ไอคอนกระดิกเมื่อชี้ ---------- */
+.side-link:hover svg {
+  animation: icon-wiggle 0.45s ease-in-out;
+}
+@keyframes icon-wiggle {
+  0%,
+  100% {
+    transform: rotate(0) scale(1);
+  }
+  30% {
+    transform: rotate(-12deg) scale(1.12);
+  }
+  65% {
+    transform: rotate(8deg) scale(1.05);
+  }
+}
+
+/* ---------- ปุ่ม + ตรงกลางแถบล่าง และปุ่มบันทึกในเมนู ---------- */
+.tab-add {
+  transition: transform 0.25s var(--ease-spring);
+}
+.tab-add:active {
+  transform: scale(0.88) rotate(90deg);
+}
+.side-add svg {
+  transition: transform 0.3s var(--ease-spring);
+}
+.side-add:hover svg {
+  transform: rotate(90deg) scale(1.15);
+}
+
+/* ---------- โลโก้: กดแล้วเด้ง (กดรัว ๆ มีของลับ) ---------- */
+.brand-mark.pop {
+  animation: logo-pop 0.4s var(--ease-spring);
+}
+@keyframes logo-pop {
+  50% {
+    transform: scale(1.25) rotate(-10deg);
+  }
+}
+
+/* ---------- ควิซ: ตอบผิดสั่นหัว ---------- */
+.fx-shake {
+  animation: m-shake 0.45s ease-in-out;
+}
+
+/* ---------- การ์ดตัวเลขบนแดชบอร์ด: ลอยขึ้นนิด ๆ เมื่อชี้ ---------- */
+.grid > .card.stat {
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s ease;
+}
+.grid > .card.stat:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- ลดการเคลื่อนไหว: ปิดทุกลูกเล่น ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .fx-particle,
+  .fx-float,
+  .fx-ripple {
+    display: none;
+  }
+  .guide-fab-body,
+  .guide-fab-body > *,
+  .bell-ring svg,
+  .side-link:hover svg,
+  .tab-add,
+  .side-add svg,
+  .brand-mark.pop,
+  .fx-shake,
+  .grid > .card.stat {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

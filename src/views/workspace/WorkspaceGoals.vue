@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+import SavingsJar from '@/components/SavingsJar.vue'
 import MoneyField from '@/components/MoneyField.vue'
 import BudgetPanel from '@/components/BudgetPanel.vue'
 import ChallengesPanel from '@/components/ChallengesPanel.vue'
@@ -104,11 +105,21 @@ function displayValue(kind: GoalKind, value: number): string {
             </div>
           </div>
 
-          <div class="cap-bar" :class="{ over: progress.goal.kind === 'expenseCap' && !progress.achieved }">
-            <span :style="{ width: `${progress.percent * 100}%` }"></span>
+          <!-- เป้าเก็บเงินแสดงเป็นโหลออมที่ค่อย ๆ เต็ม เป้าแบบอื่นใช้แถบตามเดิม -->
+          <div v-if="progress.goal.kind === 'save'" class="row" style="gap: 14px; align-items: center">
+            <SavingsJar :percent="progress.percent" :done="progress.achieved" />
+            <div style="flex: 1">
+              <strong>{{ Math.round(progress.percent * 100) }}%</strong>
+              <p class="small mt-1">{{ progress.message }}</p>
+            </div>
           </div>
+          <template v-else>
+            <div class="cap-bar" :class="{ over: progress.goal.kind === 'expenseCap' && !progress.achieved }">
+              <span :style="{ width: `${progress.percent * 100}%` }"></span>
+            </div>
 
-          <p class="small mt-1">{{ progress.message }}</p>
+            <p class="small mt-1">{{ progress.message }}</p>
+          </template>
         </div>
       </section>
 

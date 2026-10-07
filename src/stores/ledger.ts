@@ -168,6 +168,13 @@ export const useLedgerStore = defineStore('ledger', () => {
     return created
   }
 
+  async function addEntries(inputs: Omit<LedgerEntry, 'id'>[]): Promise<number> {
+    if (!active.value || !inputs.length) return 0
+    const created = await api.addEntries(active.value.id, inputs)
+    entries.value = sortEntries([...created, ...entries.value])
+    return created.length
+  }
+
   /** รายการที่ถูกเพิ่มจากที่อื่น (เช่นปุ่มบันทึกด่วน) ขณะเปิดสมุดเล่มนี้อยู่ */
   function receiveEntry(created: EntryRecord): void {
     if (active.value?.id !== created.workspaceId) return
@@ -197,6 +204,49 @@ export const useLedgerStore = defineStore('ledger', () => {
     entries.value = entries.value.filter((e) => e.id !== id)
     // หลักฐานที่ผูกกับรายการถูกลบไปพร้อมกันฝั่ง API แล้ว ตัดออกจากหน้าจอด้วย
     evidence.value = evidence.value.filter((e) => e.entryId !== id)
+  }
+
+  /**
+   * ลบแบบเลิกทำได้: ซ่อนจากหน้าจอทันที แล้วลบจริงเมื่อพ้นเวลาเลิกทำ
+   * ไม่ลบทันทีแล้วค่อยสร้างใหม่ตอนเลิกทำ เพราะหลักฐานที่แนบไว้จะหายไปกับการลบจริง
+   * คืนฟังก์ชันเลิกทำ — ถ้าปิดหน้าเว็บระหว่างรอ ระบบลบจริงให้ก่อนปิด
+   */
+  function removeEntryLater(id: string, delayMs: number): () => void {
+    const entry = entries.value.find((e) => e.id === id)
+    if (!entry) return () => {}
+    const workspaceId = entry.workspaceId
+    const attached = evidence.value.filter((e) => e.entryId === id)
+    entries.value = entries.value.filter((e) => e.id !== id)
+    evidence.value = evidence.value.filter((e) => e.entryId !== id)
+
+    let done = false
+    const commit = () => {
+      if (done) return
+      done = true
+      pendingDeletes.delete(commit)
+      void api.deleteEntry(id).catch(() => {
+        /* ถูกลบไปแล้วจากที่อื่น ไม่ต้องทำอะไร */
+      })
+    }
+    const timer = setTimeout(commit, delayMs)
+    pendingDeletes.add(commit)
+
+    return () => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      pendingDeletes.delete(commit)
+      // เปลี่ยนไปเปิดสมุดเล่มอื่นแล้ว ไม่ต้องใส่กลับในรายการของเล่มที่เปิดอยู่
+      if (active.value?.id !== workspaceId) return
+      entries.value = sortEntries([entry, ...entries.value])
+      evidence.value = [...evidence.value, ...attached]
+    }
+  }
+
+  /** ลบที่ค้างรอเวลาเลิกทำ — ทำให้เสร็จก่อนปิดหน้า */
+  const pendingDeletes = new Set<() => void>()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => [...pendingDeletes].forEach((commit) => commit()))
   }
 
   /** แนบหลักฐาน คืน record ที่บันทึกแล้วเพื่อให้หน้าจอแสดงได้ทันที */
@@ -256,6 +306,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     updateActive,
     removeWorkspace,
     addEntry,
+    addEntries,
     receiveEntry,
     updateEntry,
     recurring,
@@ -263,6 +314,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     addRecurring,
     removeRecurring,
     removeEntry,
+    removeEntryLater,
     addGoal,
     removeGoal,
     addEvidence,

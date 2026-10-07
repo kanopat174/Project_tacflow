@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-ssr/
+*.tsbuildinfo
+coverage/
+
+# environment — copy .env.example to .env and fill in real values
+.env
+.env.*
+!.env.example
+
+# logs and editor files
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/

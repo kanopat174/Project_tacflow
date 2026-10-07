@@ -10,6 +10,9 @@ import {
 import { compressImage, formatBytes } from '@/services/imageCompress'
 import MoneyField from '@/components/MoneyField.vue'
 import StagedFileList from '@/components/StagedFileList.vue'
+import StatementImport from '@/components/StatementImport.vue'
+import { downloadText, safeFilename } from '@/services/download'
+import { entriesToCsv } from '@/services/ledgerCsv'
 import { categoriesOf, categoryLabel, type EntryType } from '@/data/workspaceModes'
 import { ApiError, type EntryRecord } from '@/services/api'
 import {
@@ -20,10 +23,12 @@ import {
 } from '@/services/ledgerEngine'
 import { formatBaht, roundMoney, thaiDate } from '@/services/taxEngine'
 import { localToday, useLedgerStore } from '@/stores/ledger'
-import { useToastStore } from '@/stores/toast'
+import { UNDO_WINDOW_MS, useToastStore } from '@/stores/toast'
+import { useFx } from '@/composables/useFx'
 
 const ledger = useLedgerStore()
 const toast = useToastStore()
+const fx = useFx()
 
 const today = localToday()
 const saving = ref(false)
@@ -248,6 +253,7 @@ async function submit() {
     }
 
     toast.success(attached > 0 ? `บันทึกรายการและแนบหลักฐาน ${attached} ไฟล์` : 'บันทึกรายการแล้ว')
+    fx.entrySaved(created?.type ?? payload.type, created?.amount ?? payload.amount)
     resetAmounts()
     pendingFiles.value = []
   } catch (error) {
@@ -257,24 +263,52 @@ async function submit() {
   }
 }
 
-async function remove(id: string) {
+function remove(id: string) {
   if (editingId.value === id) cancelEdit()
-  try {
-    await ledger.removeEntry(id)
-    toast.success('ลบรายการแล้ว')
-  } catch (error) {
-    toast.error(error instanceof ApiError ? error.message : 'ลบไม่สำเร็จ')
-  }
+  const undo = ledger.removeEntryLater(id, UNDO_WINDOW_MS)
+  fx.deleted()
+  toast.undoable('ลบรายการแล้ว', () => {
+    undo()
+    fx.undone()
+    toast.success('เอารายการกลับมาแล้ว')
+  })
 }
 
 function labelOf(key: string): string {
   return categoryLabel(ledger.mode, key)
+}
+
+/* ---------- ส่งออกและนำเข้า CSV ---------- */
+
+const showImport = ref(false)
+
+/** ส่งออกตามตัวกรองที่ใช้อยู่ — ไม่กรองอะไรก็ได้ทุกรายการ */
+function exportCsv() {
+  if (!visible.value.length) {
+    toast.error('ไม่มีรายการให้ส่งออก')
+    return
+  }
+  const name = safeFilename(`${ledger.active?.name ?? 'สมุดบัญชี'}-${today}`)
+  downloadText(`${name}.csv`, entriesToCsv(visible.value, ledger.mode), 'text/csv')
+  toast.success(`ส่งออก ${visible.value.length} รายการแล้ว`)
 }
 </script>
 
 <template>
   <div class="work-layout">
     <div>
+      <div class="row mb-2 no-print" style="gap: 8px; flex-wrap: wrap">
+        <button class="btn btn-ghost btn-sm" type="button" @click="exportCsv">
+          <AppIcon name="download" :size="15" />
+          ส่งออก CSV{{ isFilterActive(filter) || filter.type !== 'all' ? ' (ตามตัวกรอง)' : '' }}
+        </button>
+        <button class="btn btn-ghost btn-sm" type="button" @click="showImport = !showImport">
+          <AppIcon name="upload" :size="15" />
+          นำเข้า statement ธนาคาร
+        </button>
+      </div>
+      <StatementImport v-if="showImport" @close="showImport = false" />
+
       <section class="card">
         <div class="card-head">
           <div>

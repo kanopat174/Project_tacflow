@@ -5,9 +5,11 @@ import AppIcon from '@/components/AppIcon.vue'
 import MoneyField from '@/components/MoneyField.vue'
 import DeductionAdvisor from '@/components/DeductionAdvisor.vue'
 import LedgerImportPanel from '@/components/LedgerImportPanel.vue'
+import CertificateImportPanel, { type CertificateApply } from '@/components/CertificateImportPanel.vue'
 import DependentsField from '@/components/DependentsField.vue'
 import ActualExpensePanel from '@/components/ActualExpensePanel.vue'
 import SpouseCompare from '@/components/SpouseCompare.vue'
+import TaxWaterfall from '@/components/TaxWaterfall.vue'
 import DocumentChecklist from '@/components/DocumentChecklist.vue'
 import { DEPENDENT_KEYS } from '@/data/dependents'
 import type { FilingImport } from '@/services/ledgerImport'
@@ -24,7 +26,7 @@ import {
   type DeductionGroup,
 } from '@/data/taxData'
 import { ApiError } from '@/services/api'
-import { formatBaht } from '@/services/taxEngine'
+import { formatBaht, roundMoney } from '@/services/taxEngine'
 import { useFilingStore, type StepId } from '@/stores/filing'
 import { useToastStore } from '@/stores/toast'
 import { useCelebrateStore } from '@/stores/celebrate'
@@ -116,6 +118,17 @@ async function confirmSubmit() {
     }
   } catch (error) {
     toast.error(error instanceof ApiError ? error.message : 'บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
+  }
+}
+
+/** เติมตัวเลขจาก 50 ทวิ — บวกเพิ่มเมื่อมีหลายใบ หรือแทนที่ยอดเดิม */
+function applyCertificate(value: CertificateApply) {
+  const merge = (current: number | undefined, next: number) =>
+    roundMoney(value.add ? (Number(current) || 0) + next : next)
+  for (const [key, amount] of Object.entries(value.income)) filing.income[key] = merge(filing.income[key], amount)
+  if (value.withholdingTax > 0 || !value.add) filing.withholdingTax = merge(filing.withholdingTax, value.withholdingTax)
+  for (const [key, amount] of Object.entries(value.funds)) {
+    if (amount > 0) filing.deductions[key] = merge(filing.deductions[key], amount)
   }
 }
 
@@ -320,6 +333,7 @@ function goToStatus() {
               :tax-year="filing.taxpayer.taxYear"
               @apply="applyLedgerImport"
             />
+            <CertificateImportPanel v-if="filing.currentStep === 2" @apply="applyCertificate" />
             <section v-if="filing.currentStep === 2" class="card">
               <div class="card-head">
                 <div>
@@ -493,6 +507,7 @@ function goToStatus() {
             <!-- ขั้นที่ 2: เลือกหักค่าใช้จ่ายแบบเหมาหรือตามจริง · ขั้นที่ 3: เทียบยื่นรวม/แยกกับคู่สมรส · ขั้นที่ 4: เช็กลิสต์เอกสาร -->
             <ActualExpensePanel v-if="filing.currentStep === 2" />
             <SpouseCompare v-if="filing.currentStep === 3" />
+            <TaxWaterfall v-if="filing.currentStep === 4" :result="result" />
             <DocumentChecklist v-if="filing.currentStep === 4" />
 
             <LegalReferences :key="filing.currentStep" :references="LEGAL_REFERENCES[filing.currentStep]" />
