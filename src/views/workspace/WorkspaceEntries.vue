@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import {
   ACCEPTED_EVIDENCE_TYPES,
@@ -13,6 +13,13 @@ import StagedFileList from '@/components/StagedFileList.vue'
 import StatementImport from '@/components/StatementImport.vue'
 import { downloadText, safeFilename } from '@/services/download'
 import { entriesToCsv } from '@/services/ledgerCsv'
+import { LOAN_ROLE_LABELS } from '@/services/loans'
+import {
+  detectRecurring,
+  loadDismissed,
+  saveDismissed,
+  type RecurringSuggestion,
+} from '@/services/recurringDetect'
 import { categoriesOf, categoryLabel, type EntryType } from '@/data/workspaceModes'
 import { ApiError, type EntryRecord } from '@/services/api'
 import {
@@ -166,6 +173,41 @@ function nextMonthOf(date: string): string {
   const [y, m] = date.split('-').map(Number) as [number, number]
   const d = new Date(y, m, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/* ---------- ตรวจพบรายการประจำ ---------- */
+
+const dismissedRecurring = ref<string[]>([])
+watch(
+  () => ledger.active?.id,
+  (id) => (dismissedRecurring.value = id ? loadDismissed(id) : []),
+  { immediate: true },
+)
+const recurringSuggestions = computed(() =>
+  ledger.active ? detectRecurring(ledger.entries, ledger.recurring, localToday(), dismissedRecurring.value).slice(0, 3) : [],
+)
+
+async function acceptRecurring(s: RecurringSuggestion) {
+  try {
+    await ledger.addRecurring({
+      type: s.type,
+      categoryKey: s.categoryKey,
+      amount: s.amount,
+      note: s.note,
+      dayOfMonth: s.dayOfMonth,
+      startMonth: s.startMonth,
+      lastMonth: '',
+    })
+    toast.success(`ตั้งเป็นรายการประจำแล้ว ระบบจะจดให้ทุกวันที่ ${s.dayOfMonth}`)
+  } catch (error) {
+    toast.error(error instanceof ApiError ? error.message : 'ตั้งรายการประจำไม่สำเร็จ')
+  }
+}
+
+function dismissRecurring(s: RecurringSuggestion) {
+  if (!ledger.active) return
+  dismissedRecurring.value = [...dismissedRecurring.value, s.key]
+  saveDismissed(ledger.active.id, dismissedRecurring.value)
 }
 
 async function removeRecurring(id: string) {
@@ -420,6 +462,9 @@ function exportCsv() {
                 <td>
                   {{ row.note || '-' }}
                   <span v-if="row.recurringId" class="badge badge-muted" style="margin-left: 6px">ประจำ</span>
+                  <span v-if="row.loan" class="badge badge-accent" style="margin-left: 6px">
+                    🤝 {{ LOAN_ROLE_LABELS[row.loan.role] }} · {{ row.loan.party }}
+                  </span>
                   <span v-if="row.symbol" class="badge badge-accent" style="margin-left: 6px">
                     {{ row.symbol }}
                   </span>
@@ -592,6 +637,33 @@ function exportCsv() {
           {{ saving ? 'กำลังบันทึก...' : editingId ? 'บันทึกการแก้ไข' : 'บันทึกรายการ' }}
         </button>
       </form>
+
+      <!-- รายการที่จ่าย/รับซ้ำทุกเดือนแต่ยังไม่ได้ตั้งเป็นรายการประจำ -->
+      <div v-if="recurringSuggestions.length" class="recurring-list" data-test="recurring-suggestions">
+        <h4>น่าจะเป็นรายการประจำ</h4>
+        <ul>
+          <li v-for="s in recurringSuggestions" :key="s.key">
+            <span>
+              <strong>{{ s.note || labelOf(s.categoryKey) }}</strong>
+              <small class="muted">
+                {{ s.type === 'income' ? '+' : '−' }}{{ formatBaht(s.amount) }} ราววันที่ {{ s.dayOfMonth }}
+                · พบ {{ s.months.length }} เดือนติดกัน
+              </small>
+            </span>
+            <span class="row" style="gap: 4px; flex-wrap: nowrap">
+              <button class="btn btn-primary btn-sm" type="button" @click="acceptRecurring(s)">ตั้งเป็นประจำ</button>
+              <button
+                class="btn btn-ghost btn-sm"
+                type="button"
+                :aria-label="`ไม่ใช่รายการประจำ ${s.note}`"
+                @click="dismissRecurring(s)"
+              >
+                ไม่ใช่
+              </button>
+            </span>
+          </li>
+        </ul>
+      </div>
 
       <!-- รายการประจำที่ตั้งไว้ -->
       <div v-if="ledger.recurring.length" class="recurring-list">

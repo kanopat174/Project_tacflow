@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import TaxDocument, { type DocumentSection } from '@/components/TaxDocument.vue'
+import EFilingHelper from '@/components/EFilingHelper.vue'
 import { E_FILING_URL, STATUS_FLOW, STATUS_META } from '@/data/filingStatus'
 import { ApiError, api, type Filing, type FilingStatus } from '@/services/api'
 import {
@@ -246,6 +247,8 @@ onMounted(load)
                 </a>
               </div>
             </section>
+
+            <EFilingHelper :reference="filing.reference" :snapshot="filing.snapshot" />
 
             <section v-if="isDue" class="card">
               <div class="card-head">

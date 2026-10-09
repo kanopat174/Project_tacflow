@@ -233,6 +233,22 @@ export const useFilingStore = defineStore('filing', () => {
     if (!taxpayer.address) taxpayer.address = user.address
   }
 
+  /**
+   * เริ่มแบบปีใหม่จากแบบปีก่อน: ยกข้อมูลที่มักไม่เปลี่ยน (สถานภาพ วันเกิด ผู้อยู่ในอุปการะ คู่สมรส)
+   * ไม่ยกเงินได้และค่าลดหย่อนที่เป็นยอดจ่าย — พวกนั้นเปลี่ยนทุกปี ดึงจากสมุดบัญชีแทน
+   */
+  function applyPreviousYear(snapshot: Record<string, unknown>): void {
+    const previous = (snapshot.taxpayer ?? {}) as Partial<Taxpayer>
+    const amounts = (snapshot.deductions ?? {}) as Record<string, number>
+    if (previous.formType) taxpayer.formType = previous.formType
+    if (previous.maritalStatus) taxpayer.maritalStatus = previous.maritalStatus
+    if (previous.birthDate && !taxpayer.birthDate) taxpayer.birthDate = previous.birthDate
+    if (previous.address && !taxpayer.address) taxpayer.address = previous.address
+    if (typeof previous.disabledPerson === 'boolean') taxpayer.disabledPerson = previous.disabledPerson
+    Object.assign(dependents, inferDependents(amounts))
+    if (Number(amounts.spouse) > 0) deductions.spouse = Number(amounts.spouse)
+  }
+
   /** รับตัวเลขจากหน้าเครื่องคำนวณเร็วมาตั้งต้นในแบบยื่น */
   function applyQuickEstimate(
     quickIncome: AmountMap,
@@ -376,6 +392,7 @@ export const useFilingStore = defineStore('filing', () => {
     goBack,
     jumpToStep,
     prefillFromAccount,
+    applyPreviousYear,
     applyQuickEstimate,
     loadDraft,
     clearDraft,

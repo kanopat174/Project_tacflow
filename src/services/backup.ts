@@ -45,8 +45,11 @@ export interface BackupFile {
   data: BackupData
   /** ไฟล์หลักฐาน: id ของหลักฐาน → data URL */
   files: Record<string, string>
-  /** ข้อมูลเสริมในเครื่อง: แบบร่างแบบภาษี และความคืบหน้าของเกม (เก็บเป็นข้อความ JSON ตามเดิม) */
-  extras: { draft: string | null; game: string | null }
+  /**
+   * ข้อมูลเสริมในเครื่อง (เก็บเป็นข้อความ JSON ตามเดิม): แบบร่างแบบภาษี ความคืบหน้าของเกม
+   * ความจำรายการที่เคยบันทึก และกองทุนลดหย่อน — ไฟล์รุ่นเก่าไม่มีสองช่องหลัง อ่านเป็น null
+   */
+  extras: { draft: string | null; game: string | null; memory: string | null; funds: string | null }
 }
 
 export class BackupError extends Error {}
@@ -101,6 +104,8 @@ export function parseBackup(text: string): BackupFile {
     extras: {
       draft: typeof extras.draft === 'string' ? extras.draft : null,
       game: typeof extras.game === 'string' ? extras.game : null,
+      memory: typeof extras.memory === 'string' ? extras.memory : null,
+      funds: typeof extras.funds === 'string' ? extras.funds : null,
     },
   }
 }

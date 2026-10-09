@@ -3,8 +3,11 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { WorkspaceMode } from '@/data/workspaceModes'
+import { downloadText } from '@/services/download'
+import { buildTaxCalendarIcs } from '@/services/icsCalendar'
 import { upcomingDeadlines } from '@/services/taxCalendar'
 import { thaiDate } from '@/services/taxEngine'
+import { useToastStore } from '@/stores/toast'
 
 const props = withDefaults(defineProps<{ modes: WorkspaceMode[]; limit?: number }>(), { limit: 6 })
 
@@ -16,6 +19,14 @@ function urgency(days: number): string {
   if (days <= 7) return 'bad'
   if (days <= 30) return 'warn'
   return 'ok'
+}
+
+const toast = useToastStore()
+
+/** ส่งออกกำหนดทั้งหมดเป็นไฟล์ .ics ให้แอปปฏิทินในเครื่องเตือนแทน แม้ไม่ได้เปิดเว็บ */
+function addToCalendar() {
+  downloadText('jodwise-tax-calendar.ics', buildTaxCalendarIcs(props.modes), 'text/calendar')
+  toast.success('ดาวน์โหลดปฏิทินแล้ว เปิดไฟล์เพื่อเพิ่มลงแอปปฏิทิน จะเตือนก่อนกำหนด 7 วันและ 1 วัน')
 }
 
 function countdown(days: number): string {
@@ -35,6 +46,10 @@ function countdown(days: number): string {
         </h3>
         <p>กำหนดยื่นแบบและชำระภาษีที่เกี่ยวกับคุณ ตามโหมดของสมุดบัญชีที่มี</p>
       </div>
+      <button class="btn btn-ghost btn-sm" type="button" @click="addToCalendar">
+        <AppIcon name="download" :size="16" />
+        เพิ่มลงปฏิทิน
+      </button>
     </div>
 
     <p v-if="!nearest" class="muted">ไม่มีกำหนดภาษีในช่วง 4 เดือนข้างหน้า</p>

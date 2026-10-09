@@ -44,6 +44,7 @@ const PAGES: PageCommand[] = [
   { id: 'dashboard', label: 'แดชบอร์ด', hint: 'ภาพรวม', icon: 'home', keywords: 'dashboard หน้าหลัก ภาพรวม', to: '/dashboard', member: true },
   { id: 'filing', label: 'เตรียมแบบภาษี', hint: 'ยื่นภาษี 4 ขั้นตอน', icon: 'file', keywords: 'ยื่น ภงด 90 91 filing', to: '/filing' },
   { id: 'deductions', label: 'คู่มือค่าลดหย่อน', hint: 'วางแผนลดหย่อน', icon: 'shield', keywords: 'ลดหย่อน rmf ssf thai esg ประกัน', to: '/deductions' },
+  { id: 'funds', label: 'กองทุนลดหย่อนของฉัน', hint: 'ขายได้เมื่อไร', icon: 'clock', keywords: 'กองทุน rmf ssf thai esg esgx ถือครอง ขาย', to: '/funds', member: true },
   { id: 'workspaces', label: 'สมุดบัญชี', hint: 'รายรับรายจ่าย', icon: 'wallet', keywords: 'สมุด บัญชี ledger', to: '/workspaces' },
   { id: 'history', label: 'ประวัติแบบภาษี', hint: 'ย้อนหลัง', icon: 'history', keywords: 'ประวัติ history', to: '/history' },
   { id: 'documents', label: 'เอกสารแนบ', hint: 'เตรียมเอกสาร', icon: 'folder', keywords: 'เอกสาร 50 ทวิ', to: '/documents' },

@@ -24,6 +24,30 @@ function numbers(line: string): number[] {
   return (line.match(MONEY) ?? []).map((m) => Number(m.replace(/,/g, '')))
 }
 
+/** ใบเสร็จที่ใช้ลดหย่อนภาษีได้ — หมวดในสมุดที่ควรลง และคำที่ใส่ในรายละเอียดให้ระบบดึงค่าลดหย่อนจับประเภทได้ */
+export interface DeductionReceipt {
+  kind: 'lifeInsurance' | 'healthInsurance' | 'pensionInsurance' | 'rmf' | 'ssf' | 'thaiEsg' | 'thaiEsgx'
+  categoryKey: 'insurance' | 'savingInvest'
+  label: string
+}
+
+const DEDUCTION_RECEIPTS: { pattern: RegExp; receipt: DeductionReceipt }[] = [
+  { pattern: /esg\s*x|esgx/i, receipt: { kind: 'thaiEsgx', categoryKey: 'savingInvest', label: 'Thai ESGX' } },
+  { pattern: /thai\s*esg|ไทยเพื่อความยั่งยืน/i, receipt: { kind: 'thaiEsg', categoryKey: 'savingInvest', label: 'Thai ESG' } },
+  // รหัสกองทุนมักติดกับชื่อ บลจ. เช่น SCBRMF2, KFSSF จึงไม่บังคับขอบคำ
+  { pattern: /rmf|เพื่อการเลี้ยงชีพ/i, receipt: { kind: 'rmf', categoryKey: 'savingInvest', label: 'RMF' } },
+  { pattern: /ssf|เพื่อการออม/i, receipt: { kind: 'ssf', categoryKey: 'savingInvest', label: 'SSF' } },
+  { pattern: /ประกัน.{0,12}บำนาญ|บำนาญ|annuity|pension/i, receipt: { kind: 'pensionInsurance', categoryKey: 'insurance', label: 'เบี้ยประกันชีวิตแบบบำนาญ' } },
+  { pattern: /ประกัน.{0,12}สุขภาพ|health\s*insurance/i, receipt: { kind: 'healthInsurance', categoryKey: 'insurance', label: 'เบี้ยประกันสุขภาพ' } },
+  { pattern: /ประกันชีวิต|life\s*insurance|ชีวิต.{0,6}ประกัน/i, receipt: { kind: 'lifeInsurance', categoryKey: 'insurance', label: 'เบี้ยประกันชีวิต' } },
+]
+
+/** ใบเสร็จนี้เป็นค่าลดหย่อนประเภทไหน — null คือใบเสร็จทั่วไป */
+export function detectDeductionReceipt(text: string): DeductionReceipt | null {
+  const normalised = normaliseText(text)
+  return DEDUCTION_RECEIPTS.find((r) => r.pattern.test(normalised))?.receipt ?? null
+}
+
 export function parseReceipt(text: string, today: string): ReceiptGuess {
   const lines = normaliseText(text)
     .split(/\r?\n/)

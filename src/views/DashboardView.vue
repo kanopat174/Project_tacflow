@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import MonthlyChart from '@/components/MonthlyChart.vue'
 import TaxCalendarCard from '@/components/TaxCalendarCard.vue'
+import LoanSummaryCard from '@/components/LoanSummaryCard.vue'
 import YearEndCountdown from '@/components/YearEndCountdown.vue'
 import LiveTaxCard from '@/components/LiveTaxCard.vue'
 import TaxSeasonCard from '@/components/TaxSeasonCard.vue'
@@ -286,6 +287,7 @@ onMounted(async () => {
             <TaxSeasonCard />
             <LiveTaxCard />
             <TaxCalendarCard :modes="workspaceModes" />
+            <LoanSummaryCard />
             <YearEndCountdown />
             <WeeklyRecapCard />
 

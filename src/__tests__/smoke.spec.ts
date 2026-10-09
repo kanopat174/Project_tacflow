@@ -43,7 +43,7 @@ describe('ทุกหน้าเรนเดอร์ได้จริง', (
       '/calculator/dividend', '/calculator/capital-gains',
       '/calculator/vat', '/calculator/withholding', '/calculator/what-if',
       '/calculator/late-payment', '/calculator/half-year', '/glossary', '/welcome',
-      '/deductions', '/filing', '/documents',
+      '/deductions', '/funds', '/filing', '/documents',
       '/history', '/status/TF-2567-0001', '/profile',
       '/workspaces', '/workspace/w_seed_personal',
       '/workspace/w_seed_personal/entries', '/workspace/w_seed_personal/evidence',
@@ -762,4 +762,80 @@ describe('ต้องยืนยันก่อนอัปโหลดไฟ�
 
     wrapper.unmount()
   })
+})
+
+describe('ล็อกแอปด้วย PIN', () => {
+  it('เปิดเว็บใหม่ต้องใส่ PIN ก่อน ใส่ผิดไม่เปิด ใส่ถูกจึงเข้าได้', async () => {
+    const { setPin, removePin } = await import('../services/appLock')
+    await api.logout()
+    await api.login({ username: 'somchai', password: 'somchai123' })
+    const me = (await api.me())!
+    await setPin(me.id, '2468')
+
+    // เหมือนเปิดเว็บใหม่: store ใหม่ทั้งหมด แล้วกู้ session จาก token
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const wrapper = mount(App, { global: { plugins: [pinia, router] }, attachTo: document.body })
+    await router.isReady()
+    await useAuthStore().restore()
+    await flushPromises()
+    expect(wrapper.find('.app-lock').exists(), 'ต้องขึ้นหน้าจอ PIN').toBe(true)
+
+    const input = wrapper.find('.app-lock input')
+    await input.setValue('1111')
+    await wrapper.find('.app-lock form').trigger('submit')
+    await vi.waitFor(() => expect(wrapper.find('.app-lock [role="alert"]').exists()).toBe(true), { timeout: 10_000 })
+    expect(wrapper.find('.app-lock').exists()).toBe(true)
+
+    await input.setValue('2468')
+    await wrapper.find('.app-lock form').trigger('submit')
+    await vi.waitFor(() => expect(wrapper.find('.app-lock').exists()).toBe(false), { timeout: 10_000 })
+
+    removePin(me.id)
+    wrapper.unmount()
+  }, 30_000)
+})
+
+describe('สแกนสลิปหลายใบ', () => {
+  it('อ่านทุกใบ แสดงให้ตรวจ แล้วบันทึกใบที่เลือกลงสมุด', async () => {
+    const slipText = (ref: string) =>
+      ['โอนเงินสำเร็จ', '14 ก.ย. 69 10:30', 'จาก นาย สมชาย ใจดี', 'ไปยัง นาง สมศรี ใจดี', 'จำนวนเงิน 4,500.00 บาท', `เลขที่รายการ ${ref}`]
+        .map((text) => ({ text, confidence: 95 }))
+    let n = 0
+    vi.doMock('../services/slipReader', () => ({
+      readSlipImage: async () => ({ lines: slipText(`REF00000${++n}AB`), text: '', confidence: 95, rotation: 0, imageHash: `hash${n}`, enhanced: false }),
+    }))
+    vi.doMock('../services/imageCompress', () => ({
+      compressImage: async (f: File) => ({ blob: new Blob(['x'], { type: 'image/jpeg' }), width: 1, height: 1, original: f.size }),
+    }))
+
+    await api.logout()
+    await api.login({ username: 'somchai', password: 'somchai123' })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const wrapper = mount(App, { global: { plugins: [pinia, router] } })
+    await router.isReady()
+    await useAuthStore().restore()
+    await flushPromises()
+
+    const { useUiStore } = await import('../stores/ui')
+    const before = (await api.allEntries()).length
+    const file = (name: string) => new File(['x'], name, { type: 'image/jpeg' })
+    useUiStore().openBulkSlips([file('a.jpg'), file('b.jpg')])
+
+    await vi.waitFor(() => expect(wrapper.findAll('[data-test="bulk-slips"] .bulk-fields')).toHaveLength(2), { timeout: 10_000 })
+    const save = wrapper.findAll('[data-test="bulk-slips"] button').find((b) => b.text().startsWith('บันทึก'))!
+    expect(save.text()).toBe('บันทึก 2 ใบ')
+    await save.trigger('click')
+    await vi.waitFor(async () => expect((await api.allEntries()).length).toBe(before + 2), { timeout: 10_000 })
+    const added = (await api.allEntries()).filter((e) => e.slip?.reference?.startsWith('REF'))
+    expect(added.map((e) => e.amount)).toEqual([4500, 4500])
+    expect(added.every((e) => e.type === 'expense')).toBe(true)
+
+    vi.doUnmock('../services/slipReader')
+    vi.doUnmock('../services/imageCompress')
+    wrapper.unmount()
+  }, 30_000)
 })

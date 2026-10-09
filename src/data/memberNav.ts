@@ -30,6 +30,7 @@ export const MEMBER_NAV: NavGroup[] = [
       { label: 'ยื่นแบบภาษี', to: '/filing', icon: 'file', match: ['/status/'] },
       { label: 'เครื่องคำนวณ', to: '/calculator', icon: 'calculator', match: ['/calculator/'] },
       { label: 'ค่าลดหย่อน', to: '/deductions', icon: 'shield' },
+      { label: 'กองทุนลดหย่อน', to: '/funds', icon: 'clock' },
       { label: 'เอกสาร', to: '/documents', icon: 'folder' },
       { label: 'ประวัติแบบภาษี', to: '/history', icon: 'history' },
     ],

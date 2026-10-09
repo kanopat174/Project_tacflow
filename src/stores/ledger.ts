@@ -27,7 +27,9 @@ import {
   type RecurringTemplate,
 } from '@/services/ledgerEngine'
 import { modeDefinition } from '@/data/workspaceModes'
+import { rememberMany } from '@/services/entryMemory'
 import { roundMoney } from '@/services/taxEngine'
+import { useAuthStore } from './auth'
 
 /** วันนี้ตามเวลาเครื่อง YYYY-MM-DD (toISOString เป็นเวลา UTC ทำให้ช่วงเช้ามืดได้วันที่เมื่อวาน) */
 export function localToday(date: Date = new Date()): string {
@@ -160,11 +162,23 @@ export const useLedgerStore = defineStore('ledger', () => {
   const sortEntries = (list: EntryRecord[]) =>
     list.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
 
+  /** จำหมวดและรายละเอียดตามข้อความรายการ ครั้งหน้าพิมพ์หรือนำเข้าข้อความเดิมจะเติมหมวดให้ (ดู entryMemory) */
+  function remember(inputs: Omit<LedgerEntry, 'id'>[]): void {
+    const userId = useAuthStore().user?.id
+    if (!userId) return
+    rememberMany(
+      userId,
+      inputs.map((e) => ({ source: e.note, type: e.type, mode: mode.value, amount: e.amount, categoryKey: e.categoryKey, note: e.note })),
+      localToday(),
+    )
+  }
+
   async function addEntry(input: Omit<LedgerEntry, 'id'>): Promise<EntryRecord | null> {
     if (!active.value) return null
     const created = await api.addEntry(active.value.id, input)
     // แทรกไว้ให้ยังเรียงจากใหม่ไปเก่าเหมือนที่ API คืนมา
     entries.value = sortEntries([created, ...entries.value])
+    remember([input])
     return created
   }
 
@@ -172,6 +186,7 @@ export const useLedgerStore = defineStore('ledger', () => {
     if (!active.value || !inputs.length) return 0
     const created = await api.addEntries(active.value.id, inputs)
     entries.value = sortEntries([...created, ...entries.value])
+    remember(inputs)
     return created.length
   }
 
@@ -185,6 +200,8 @@ export const useLedgerStore = defineStore('ledger', () => {
   async function updateEntry(id: string, patch: Omit<LedgerEntry, 'id'>): Promise<void> {
     const updated = await api.updateEntry(id, patch)
     entries.value = sortEntries(entries.value.map((e) => (e.id === id ? updated : e)))
+    // ผู้ใช้แก้หมวดเอง — ครั้งหน้าข้อความเดิมใช้หมวดที่แก้
+    remember([patch])
   }
 
   /* ---------- รายการประจำ ---------- */

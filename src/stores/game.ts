@@ -22,6 +22,8 @@ import { liveTax } from '@/services/liveTax'
 import { activeSeasonalAccessories, taxSeason, taxSeasonMission } from '@/services/seasons'
 import { weeklyRecap } from '@/services/weeklyRecap'
 import { upcomingDeadlines } from '@/services/taxCalendar'
+import { backupOverdueDays, backupStamp, readLastBackup, requestPersistentStorage } from '@/services/storageSafety'
+import { FUND_KINDS, loadFunds, lotStatuses, type FundBook } from '@/services/fundHoldings'
 import { formatBaht, roundMoney } from '@/services/taxEngine'
 import { useTheme } from '@/composables/useTheme'
 import { useAuthStore } from './auth'
@@ -79,6 +81,7 @@ export const useGameStore = defineStore('game', () => {
   const goals = ref<GoalRecord[]>([])
   const filings = ref<Filing[]>([])
   const challenges = ref<ChallengeRecord[]>([])
+  const funds = ref<FundBook>({ lots: [], birthDate: '' })
   const loaded = ref(false)
   const progress = ref<SavedProgress>(emptyProgress())
   const today = ref(localToday())
@@ -309,6 +312,38 @@ export const useGameStore = defineStore('game', () => {
       })
     }
 
+    // กองทุนลดหย่อนที่ใกล้ครบหรือเพิ่งครบระยะถือ — ขายได้โดยไม่ต้องคืนภาษี
+    for (const s of lotStatuses(funds.value.lots, today.value, funds.value.birthDate || null)) {
+      if (!s.sellableOn || s.daysLeft === null) continue
+      const sinceSellable = daysBetween(s.sellableOn, today.value)
+      if (s.daysLeft > 30 || sinceSellable > 14) continue
+      list.push({
+        id: `fund:${s.lot.id}:${s.sellable ? 'open' : 'soon'}`,
+        level: 'info',
+        icon: '📈',
+        title: s.sellable ? `${FUND_KINDS[s.lot.kind].label} ครบระยะถือแล้ว` : `${FUND_KINDS[s.lot.kind].label} ครบระยะถือในอีก ${s.daysLeft} วัน`,
+        text: `${s.lot.name} ที่ซื้อเมื่อ ${s.lot.buyDate} ขายได้โดยไม่ต้องคืนภาษี`,
+        to: '/funds',
+      })
+    }
+
+    // ข้อมูลอยู่ในเบราว์เซอร์เครื่องเดียว ไม่ได้สำรองนาน ๆ เสี่ยงหายทั้งหมด
+    void backupStamp.value
+    const user = auth.user
+    const lastBackup = user ? readLastBackup(user.id) : null
+    const hasData = entries.value.length > 0 || filings.value.length > 0
+    const overdue = user ? backupOverdueDays(lastBackup, user.createdAt, today.value, hasData) : null
+    if (overdue !== null) {
+      list.push({
+        id: `backup:${today.value.slice(0, 7)}`,
+        level: 'warn',
+        icon: '💾',
+        title: lastBackup ? `ไม่ได้สำรองข้อมูลมา ${overdue} วัน` : 'ยังไม่เคยสำรองข้อมูล',
+        text: 'ข้อมูลอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น ล้างเบราว์เซอร์หรือเปลี่ยนเครื่องแล้วจะหาย',
+        to: '/profile',
+      })
+    }
+
     if (streak.value.lastDate && daysBetween(streak.value.lastDate, today.value) >= 3) {
       list.push({
         id: `remind:${streak.value.lastDate}`,
@@ -358,9 +393,15 @@ export const useGameStore = defineStore('game', () => {
         goals.value = gs
         filings.value = fs
         challenges.value = cs
+        funds.value = loadFunds(userId)
         today.value = localToday()
         loaded.value = true
         detectUnlocks(userId)
+        if (es.length || fs.length) {
+          void requestPersistentStorage()
+          // โหลดเฉพาะเมื่อมีข้อมูลแล้ว และแยก chunk เพื่อไม่ให้ไฟล์สำรองวนกลับมา import store นี้ตอนเริ่มเว็บ
+          void import('@/services/autoBackup').then((m) => m.runAutoBackup(userId))
+        }
       } catch {
         /* ออกจากระบบระหว่างโหลด หรือโหลดไม่สำเร็จ — รอบหน้าค่อยลองใหม่ */
       } finally {
@@ -411,6 +452,7 @@ export const useGameStore = defineStore('game', () => {
     goals.value = []
     filings.value = []
     challenges.value = []
+    funds.value = { lots: [], birthDate: '' }
     loaded.value = false
     progress.value = emptyProgress()
   }

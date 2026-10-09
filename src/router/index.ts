@@ -94,6 +94,18 @@ const router = createRouter({
       meta: { title: 'คู่มือค่าลดหย่อน' },
     },
     {
+      path: '/share-target',
+      name: 'share-target',
+      component: () => import('@/views/ShareTargetView.vue'),
+      meta: { title: 'เปิดไฟล์ที่แชร์มา', requiresAuth: true },
+    },
+    {
+      path: '/funds',
+      name: 'funds',
+      component: () => import('@/views/FundsView.vue'),
+      meta: { title: 'กองทุนลดหย่อนของฉัน', requiresAuth: true },
+    },
+    {
       path: '/workspaces',
       name: 'workspaces',
       component: () => import('@/views/WorkspacesView.vue'),

@@ -15,6 +15,19 @@ import { categoriesOf, categoryLabel, type EntryType } from '@/data/workspaceMod
 import type { EvidenceKind } from '@/data/evidenceTypes'
 import { ApiError, api } from '@/services/api'
 import { frequentEntries, type FrequentEntry } from '@/services/frequentEntries'
+import { loadMemory, recallEntry, rememberMany, type MemoryInput, type Recall } from '@/services/entryMemory'
+import { loadFunds, saveFunds, type FundKind } from '@/services/fundHoldings'
+import type { DeductionReceipt } from '@/services/receiptParse'
+// ตัวอ่าน PDF (pdf.js) โหลดแยกภายใน readEtaxPdf เฉพาะตอนเลือกไฟล์ครั้งแรก
+import { buyerMatches, readEtaxPdf, type EtaxInvoice } from '@/services/etaxInvoice'
+import {
+  LOAN_ROLE_LABELS,
+  LOAN_ROLES_FOR,
+  loanBalances,
+  suggestLoanRole,
+  type LoanSuggestion,
+} from '@/services/loans'
+import type { LoanRole } from '@/services/ledgerEngine'
 import { guessCategory } from '@/services/ledgerCsv'
 import type { RecipientType, SlipMeta } from '@/services/ledgerEngine'
 import { parseQuickEntry } from '@/services/quickParse'
@@ -34,6 +47,8 @@ import { localToday, useLedgerStore } from '@/stores/ledger'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
 import { useFx } from '@/composables/useFx'
+import { useSpeechInput } from '@/composables/useSpeechInput'
+import { normaliseSpokenEntry } from '@/services/spokenThai'
 
 const LAST_KEY = 'taxflow_quick_workspace'
 const CATEGORY_KEY = 'taxflow_quick_category'
@@ -85,6 +100,99 @@ watch([categories], () => {
   form.categoryKey = categories.value.some((c) => c.key === remembered) ? remembered! : (categories.value[0]?.key ?? '')
 })
 
+/* ---------- จำรายการที่เคยบันทึก ---------- */
+
+/** ต้นทางของรายการนี้ (ชื่อคู่โอน ชื่อร้าน หรือข้อความที่พิมพ์) ใช้เป็นกุญแจความจำตอนบันทึก */
+const memorySource = ref('')
+/** ข้อมูลที่เติมจากความจำ — แสดงบอกผู้ใช้ */
+const recalled = ref<Recall | null>(null)
+/** ใบเสร็จที่ถ่ายเป็นค่าลดหย่อน (เบี้ยประกัน/กองทุน) */
+const deductionReceipt = ref<DeductionReceipt | null>(null)
+
+const FUND_RECEIPT_KINDS: Partial<Record<DeductionReceipt['kind'], FundKind>> = {
+  rmf: 'rmf',
+  ssf: 'ssf',
+  thaiEsg: 'thaiEsg',
+  thaiEsgx: 'thaiEsgx',
+}
+
+/** ใบเสร็จซื้อกองทุนลดหย่อน — จดลงหน้ากองทุนของฉันด้วย จะได้ติดตามวันที่ขายได้โดยไม่ต้องกรอกซ้ำ */
+function recordFundPurchase(): boolean {
+  const kind = deductionReceipt.value ? FUND_RECEIPT_KINDS[deductionReceipt.value.kind] : undefined
+  if (!kind || !auth.user || !form.date) return false
+  const book = loadFunds(auth.user.id)
+  book.lots.push({
+    id: `fund-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    kind,
+    name: form.note || deductionReceipt.value!.label,
+    buyDate: form.date,
+    amount: form.amount,
+  })
+  return saveFunds(auth.user.id, book)
+}
+
+/**
+ * เติมหมวด (และรายละเอียดถ้า withNote) จากรายการที่เคยบันทึกกับต้นทางเดียวกัน
+ * เรียกหลังตัวเดาหมวดจากคำค้นเสมอ ความจำของผู้ใช้จึงชนะการเดา
+ */
+function applyMemory(source: string, withNote: boolean) {
+  memorySource.value = source
+  recalled.value = null
+  if (!auth.user || !workspace.value || !source.trim()) return
+  const hit = recallEntry(loadMemory(auth.user.id), {
+    source,
+    type: form.type,
+    mode: workspace.value.mode,
+    amount: form.amount,
+  })
+  if (!hit) return
+  recalled.value = hit
+  if (withNote && hit.note) form.note = hit.note
+  void nextTick(() => {
+    if (categories.value.some((c) => c.key === hit.categoryKey)) form.categoryKey = hit.categoryKey
+  })
+}
+
+/** คู่โอนบนสลิปที่ใช้จำ — รายจ่ายจำผู้รับ รายรับจำผู้โอน */
+const slipCounterparty = () => (form.type === 'expense' ? slipEdit.recipient : slipEdit.sender).trim()
+
+/* ---------- เงินยืม ---------- */
+
+const loanRole = ref<LoanRole | ''>('')
+const loanParty = ref('')
+/** ระบบเติมบทบาทเงินยืมให้เพราะคู่โอนค้างกันอยู่ */
+const loanSuggested = ref<LoanSuggestion | null>(null)
+const loanBook = computed(() => loanBalances(game.entries))
+
+// เปลี่ยนเงินเข้า/ออกแล้วบทบาทเดิมใช้ไม่ได้ (ให้ยืมต้องเป็นเงินออก)
+watch(
+  () => form.type,
+  (type) => {
+    if (loanRole.value && !LOAN_ROLES_FOR[type].includes(loanRole.value)) loanRole.value = ''
+  },
+)
+
+watch(loanRole, (role) => {
+  if (role && !loanParty.value) loanParty.value = (slip.value ? slipCounterparty() : '') || form.note
+})
+
+/** สลิปจากคนที่ค้างเงินกันอยู่ — เสนอเป็นเงินคืนให้เลย */
+function suggestLoan() {
+  loanSuggested.value = null
+  const party = slipCounterparty()
+  const hit = party ? suggestLoanRole(loanBook.value, form.type, party) : null
+  if (!hit) return
+  loanSuggested.value = hit
+  loanRole.value = hit.tag.role
+  loanParty.value = hit.tag.party
+}
+
+function resetLoan() {
+  loanRole.value = ''
+  loanParty.value = ''
+  loanSuggested.value = null
+}
+
 /* ---------- พิมพ์เป็นประโยค ---------- */
 
 const parsed = computed(() =>
@@ -103,7 +211,25 @@ watch(parsed, (p) => {
   void nextTick(() => {
     if (p.categoryKey !== 'otherIncome' && p.categoryKey !== 'otherExpense') form.categoryKey = p.categoryKey
   })
+  // ข้อความที่พิมพ์เป็นของผู้ใช้เอง เติมจากความจำแค่หมวด
+  applyMemory(p.note, false)
 })
+
+/* ---------- พูดเพื่อจด ---------- */
+
+const speech = useSpeechInput(
+  (text) => {
+    // แปลงคำตัวเลขเป็นเลข แล้วส่งเข้าช่องพิมพ์ — ตัวแยกประโยคและความจำทำงานต่อเหมือนพิมพ์เอง
+    sentence.value = normaliseSpokenEntry(text)
+    if (!parsed.value) toast.error(`ได้ยินว่า "${text}" แต่ไม่เจอจำนวนเงิน พูดยอดเงินด้วย เช่น "หกสิบบาท"`)
+  },
+  (message) => toast.error(message),
+)
+
+function toggleSpeech() {
+  if (speech.listening.value) speech.stop()
+  else speech.start()
+}
 
 /* ---------- รายการที่จดบ่อย ---------- */
 
@@ -135,7 +261,7 @@ const evidenceKind = ref<EvidenceKind>('receipt')
 const reading = ref(false)
 const readStatus = ref('')
 
-async function pickReceipt(files: FileList | null) {
+async function pickReceipt(files: FileList | File[] | null) {
   const file = files?.[0]
   if (receiptInput.value) receiptInput.value.value = ''
   if (!file || !workspace.value) return
@@ -149,7 +275,7 @@ async function pickReceipt(files: FileList | null) {
   clearSlip()
   try {
     // ตัวอ่าน OCR โหลดเฉพาะตอนถ่ายใบเสร็จครั้งแรก
-    const [{ readImageText }, { parseReceipt }] = await Promise.all([
+    const [{ readImageText }, { parseReceipt, detectDeductionReceipt }] = await Promise.all([
       import('@/services/certificateReader'),
       import('@/services/receiptParse'),
     ])
@@ -157,6 +283,7 @@ async function pickReceipt(files: FileList | null) {
       readStatus.value = `${status} ${Math.round(progress * 100)}%`
     })
     const guess = parseReceipt(text, localToday())
+    const deduction = detectDeductionReceipt(text)
     sentence.value = ''
     form.type = 'expense'
     if (guess.amount) form.amount = guess.amount
@@ -166,6 +293,14 @@ async function pickReceipt(files: FileList | null) {
     void nextTick(() => {
       if (key !== 'otherExpense') form.categoryKey = key
     })
+    applyMemory(guess.merchant, true)
+    // ใบเสร็จเบี้ยประกันหรือกองทุนลดหย่อน: ลงหมวดที่ถูกและใส่ประเภทในรายละเอียด
+    // ตอนยื่นภาษีระบบดึงไปเป็นค่าลดหย่อนให้เอง (ดู deductionImport)
+    if (deduction && categories.value.some((c) => c.key === deduction.categoryKey)) {
+      deductionReceipt.value = deduction
+      form.note = guess.merchant ? `${deduction.label} — ${guess.merchant}` : deduction.label
+      void nextTick(() => void nextTick(() => (form.categoryKey = deduction.categoryKey)))
+    }
     if (guess.amount) toast.success('อ่านใบเสร็จแล้ว ตรวจยอดก่อนบันทึกนะ')
     else toast.error('หายอดรวมในใบเสร็จไม่เจอ กรอกยอดเองได้ รูปจะแนบเป็นหลักฐานให้')
   } catch {
@@ -173,6 +308,67 @@ async function pickReceipt(files: FileList | null) {
   } finally {
     reading.value = false
   }
+}
+
+/* ---------- ใบกำกับภาษีอิเล็กทรอนิกส์ (PDF ที่ฝัง XML) ---------- */
+
+const etaxInput = ref<HTMLInputElement | null>(null)
+const etax = ref<EtaxInvoice | null>(null)
+/** ใบกำกับออกในชื่อคนอื่น — ใช้เป็นหลักฐานลดหย่อนของผู้ใช้ไม่ได้ */
+const etaxOtherBuyer = computed(() => !!etax.value && buyerMatches(etax.value, auth.user?.citizenId ?? '') === false)
+
+async function pickEtax(files: FileList | File[] | null) {
+  const file = files?.[0]
+  if (etaxInput.value) etaxInput.value.value = ''
+  if (!file || !workspace.value) return
+  if (file.type !== 'application/pdf') {
+    toast.error('เลือกไฟล์ PDF ของใบกำกับภาษีอิเล็กทรอนิกส์')
+    return
+  }
+  reading.value = true
+  readStatus.value = 'กำลังอ่านใบกำกับ'
+  clearSlip()
+  receiptFile.value = file
+  evidenceKind.value = 'receipt'
+  try {
+    const invoice = await readEtaxPdf(file)
+    if (!invoice) {
+      toast.error('ไฟล์นี้ไม่มีข้อมูล e-Tax ฝังอยู่ กรอกยอดเองได้ ไฟล์จะแนบเป็นหลักฐานให้')
+      return
+    }
+    etax.value = invoice
+    sentence.value = ''
+    form.type = 'expense'
+    form.amount = invoice.total
+    if (invoice.issueDate && invoice.issueDate <= maxDate.value) form.date = invoice.issueDate
+    form.note = invoice.sellerName ? `${invoice.sellerName} (e-Tax ${invoice.number})` : `e-Tax ${invoice.number}`
+    const key = guessCategory(invoice.sellerName, 'expense', workspace.value.mode)
+    void nextTick(() => {
+      if (key !== 'otherExpense') form.categoryKey = key
+    })
+    applyMemory(invoice.sellerName, false)
+    toast.success(`อ่าน${invoice.typeLabel}แล้ว ยอด ${formatBaht(invoice.total)} — ตัวเลขมาจากไฟล์โดยตรง`)
+  } catch {
+    toast.error('อ่านไฟล์ PDF ไม่สำเร็จ ไฟล์อาจเสียหายหรือมีรหัสผ่าน')
+  } finally {
+    reading.value = false
+  }
+}
+
+/* ---------- สแกนสลิปหลายใบ ---------- */
+
+const bulkInput = ref<HTMLInputElement | null>(null)
+
+function pickBulk(files: FileList | null) {
+  const images = [...(files ?? [])].filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type))
+  if (bulkInput.value) bulkInput.value.value = ''
+  if (!images.length) return
+  if (images.length === 1) {
+    void pickSlip(images)
+    return
+  }
+  ui.openBulkSlips(images)
+  close()
 }
 
 /* ---------- สแกนสลิปโอนเงิน ---------- */
@@ -240,6 +436,11 @@ function fieldOf(key: SlipFieldKey) {
 function chooseType(type: EntryType) {
   form.type = type
   typeConfirmed.value = true
+  // ทิศทางเงินกำหนดว่าคู่โอนคือผู้รับหรือผู้โอน — รอรายละเอียดอัตโนมัติเปลี่ยนตามก่อน แล้วค่อยเติมจากความจำ
+  void nextTick(() => {
+    applyMemory(slipCounterparty(), true)
+    if (slip.value) suggestLoan()
+  })
 }
 
 // เปลี่ยนประเภทหรือแก้ชื่อแล้ว รายละเอียดที่ระบบเติมให้เปลี่ยนตาม ถ้าผู้ใช้ยังไม่ได้แก้รายละเอียดเอง
@@ -259,9 +460,14 @@ function clearSlip() {
   reviewConfirmed.value = false
   duplicateConfirmed.value = false
   autoNote = ''
+  memorySource.value = ''
+  recalled.value = null
+  deductionReceipt.value = null
+  etax.value = null
+  resetLoan()
 }
 
-async function pickSlip(files: FileList | null) {
+async function pickSlip(files: FileList | File[] | null) {
   const file = files?.[0]
   if (slipInput.value) slipInput.value.value = ''
   if (!file || !workspace.value) return
@@ -304,6 +510,11 @@ async function pickSlip(files: FileList | null) {
     void nextTick(() => {
       if (key !== 'otherIncome' && key !== 'otherExpense') form.categoryKey = key
     })
+    // รู้ทิศทางเงินแล้วเท่านั้นจึงรู้ว่าคู่โอนคือใคร ไม่รู้ให้รอผู้ใช้เลือกประเภทก่อน (chooseType)
+    if (typeConfirmed.value) {
+      applyMemory(slipCounterparty(), true)
+      suggestLoan()
+    }
     if (result.review.length || !result.direction) toast.push('อ่านสลิปแล้ว มีบางช่องต้องตรวจก่อนบันทึก')
     else toast.success('อ่านสลิปแล้ว ตรวจข้อมูลก่อนบันทึกนะ')
   } catch {
@@ -311,6 +522,16 @@ async function pickSlip(files: FileList | null) {
   } finally {
     reading.value = false
   }
+}
+
+/** จำรายการที่บันทึก ทั้งตามต้นทาง (คู่โอน/ร้าน) และตามรายละเอียด ครั้งหน้าเติมให้ได้ทั้งสองทาง */
+function rememberSaved(mode: MemoryInput['mode']) {
+  if (!auth.user) return
+  const base = { type: form.type, mode, amount: form.amount, categoryKey: form.categoryKey, note: form.note }
+  const source = (slip.value ? slipCounterparty() : '') || memorySource.value
+  const inputs: MemoryInput[] = [{ ...base, source: form.note }]
+  if (source && source !== form.note) inputs.push({ ...base, source })
+  rememberMany(auth.user.id, inputs, localToday())
 }
 
 /** เหตุผลที่ยังบันทึกสลิปไม่ได้ — null คือพร้อมบันทึก */
@@ -330,8 +551,9 @@ async function attachReceipt(workspaceId: string, entryId: string, date: string,
   const file = receiptFile.value
   if (!file) return false
   try {
-    const { compressImage } = await import('@/services/imageCompress')
-    const { blob } = await compressImage(file)
+    // PDF (e-Tax) เก็บไฟล์เดิมไว้ทั้งไฟล์ — XML ที่ฝังอยู่คือหลักฐานตัวจริง ย่อไม่ได้
+    const blob: Blob =
+      file.type === 'application/pdf' ? file : (await (await import('@/services/imageCompress')).compressImage(file)).blob
     const record = await api.addEvidence(
       workspaceId,
       { entryId, date, direction, kind: evidenceKind.value, name: file.name, size: blob.size, mimeType: blob.type || file.type, note: '' },
@@ -381,6 +603,14 @@ async function prepare() {
   )
   form.workspaceId = preferred ?? ''
   await nextTick()
+  // ไฟล์ที่แชร์มาจากแอปอื่น (Web Share Target) อ่านให้ทันที
+  const shared = ui.quickAddFile
+  ui.quickAddFile = null
+  if (shared && workspace.value) {
+    if (shared.type === 'application/pdf') await pickEtax([shared])
+    else await pickSlip([shared])
+    return
+  }
   sentenceInput.value?.focus()
 }
 
@@ -409,8 +639,11 @@ async function save() {
       amount: form.amount,
       note: form.note,
       ...(slipMeta.value ? { slip: slipMeta.value } : {}),
+      ...(loanRole.value && loanParty.value.trim() ? { loan: { role: loanRole.value, party: loanParty.value.trim() } } : {}),
     })
     ledger.receiveEntry(created)
+    rememberSaved(workspace.value.mode)
+    const fundRecorded = recordFundPurchase()
     const attached = await attachReceipt(workspace.value.id, created.id, form.date, form.type)
     const attachedLabel = evidenceKind.value === 'slip' ? 'สลิป' : 'ใบเสร็จ'
     receiptFile.value = null
@@ -421,7 +654,8 @@ async function save() {
     writeLocal(CATEGORY_KEY, JSON.stringify(lastCategories.value))
     toast.success(
       `บันทึก${form.type === 'income' ? 'รายรับ' : 'รายจ่าย'} ${formatBaht(form.amount)} ลง "${workspace.value.name}" แล้ว` +
-        (attached ? ` พร้อมรูป${attachedLabel}` : ''),
+        (attached ? ` พร้อมรูป${attachedLabel}` : '') +
+        (fundRecorded ? ' และจดลงกองทุนลดหย่อนของฉันแล้ว' : ''),
     )
     fx.entrySaved(form.type, form.amount)
     form.amount = 0
@@ -466,17 +700,32 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
           <form v-else novalidate @submit.prevent="save">
             <div class="field">
-              <label for="q-sentence">พิมพ์สั้น ๆ</label>
-              <input
-                id="q-sentence"
-                ref="sentenceInput"
-                v-model="sentence"
-                type="text"
-                autocomplete="off"
-                placeholder="เช่น กาแฟ 65 · ค่าไฟ 1,200 เมื่อวาน · +30000 เงินเดือน"
-              />
+              <label for="q-sentence">{{ speech.supported ? 'พิมพ์หรือพูดสั้น ๆ' : 'พิมพ์สั้น ๆ' }}</label>
+              <div class="sentence-row">
+                <input
+                  id="q-sentence"
+                  ref="sentenceInput"
+                  v-model="sentence"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="เช่น กาแฟ 65 · ค่าไฟ 1,200 เมื่อวาน · +30000 เงินเดือน"
+                />
+                <button
+                  v-if="speech.supported"
+                  class="btn btn-sm mic-btn"
+                  :class="speech.listening.value ? 'btn-primary listening' : 'btn-ghost'"
+                  type="button"
+                  :aria-label="speech.listening.value ? 'หยุดฟัง' : 'พูดเพื่อจดรายการ'"
+                  :aria-pressed="speech.listening.value"
+                  data-test="mic"
+                  @click="toggleSpeech"
+                >
+                  🎤
+                </button>
+              </div>
               <p class="hint" aria-live="polite">
-                <template v-if="parsed && workspace">
+                <template v-if="speech.listening.value">กำลังฟัง... {{ speech.interim.value || 'พูดเช่น "ข้าวมันไก่ หกสิบบาท"' }}</template>
+                <template v-else-if="parsed && workspace">
                   {{ parsed.type === 'income' ? 'รายรับ' : 'รายจ่าย' }} {{ formatBaht(parsed.amount) }} ·
                   {{ categoryLabel(workspace.mode, form.categoryKey) }} · {{ thaiDate(parsed.date) }}
                 </template>
@@ -511,7 +760,41 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                   @change="pickSlip(($event.target as HTMLInputElement).files)"
                 />
               </label>
+              <label class="btn btn-ghost btn-sm" :class="{ disabled: reading }">
+                <AppIcon name="plusSquare" :size="15" />
+                สแกนสลิปหลายใบ
+                <input
+                  ref="bulkInput"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  class="sr-only"
+                  :disabled="reading"
+                  @change="pickBulk(($event.target as HTMLInputElement).files)"
+                />
+              </label>
+              <label class="btn btn-ghost btn-sm" :class="{ disabled: reading }">
+                <AppIcon name="file" :size="15" />
+                e-Tax (PDF)
+                <input
+                  ref="etaxInput"
+                  type="file"
+                  accept="application/pdf"
+                  class="sr-only"
+                  :disabled="reading"
+                  @change="pickEtax(($event.target as HTMLInputElement).files)"
+                />
+              </label>
               <small v-if="receiptFile && !reading" class="muted">📎 แนบ {{ receiptFile.name }} เป็นหลักฐาน</small>
+            </div>
+
+            <div v-if="etax && !reading" class="notice mb-2" :class="{ 'notice-warn': etaxOtherBuyer }" data-test="etax-review">
+              <strong>{{ etax.typeLabel }} เลขที่ {{ etax.number }}</strong>
+              {{ etax.sellerName }} (เลขผู้เสียภาษี {{ etax.sellerTaxId }}) · ยอดรวม {{ formatBaht(etax.total) }}
+              · VAT {{ formatBaht(etax.vat) }}
+              <template v-if="etaxOtherBuyer">
+                <br />ใบนี้ออกในชื่อ {{ etax.buyerName || 'ผู้อื่น' }} ไม่ใช่เลขบัตรของคุณ — ใช้ลดหย่อนภาษีของคุณไม่ได้
+              </template>
             </div>
 
             <!-- ข้อมูลที่อ่านได้จากสลิป ให้ตรวจก่อนบันทึก ช่องที่ไม่มีในสลิปบอกตรง ๆ ว่าไม่พบ -->
@@ -668,7 +951,38 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 <label for="q-note">รายละเอียด</label>
                 <input id="q-note" v-model="form.note" type="text" placeholder="ไม่บังคับ" />
               </div>
+              <div class="field">
+                <label for="q-loan">เงินยืม</label>
+                <select id="q-loan" v-model="loanRole" data-test="loan-role">
+                  <option value="">ไม่ใช่</option>
+                  <option v-for="role in LOAN_ROLES_FOR[form.type]" :key="role" :value="role">
+                    {{ LOAN_ROLE_LABELS[role] }}
+                  </option>
+                </select>
+              </div>
+              <div v-if="loanRole" class="field">
+                <label for="q-loan-party">{{ loanRole === 'lend' || loanRole === 'collect' ? 'ผู้ยืม' : 'ผู้ให้ยืม' }}</label>
+                <input id="q-loan-party" v-model="loanParty" type="text" placeholder="ชื่อ" />
+              </div>
             </div>
+
+            <p v-if="loanSuggested" class="small muted mb-2" data-test="loan-hint">
+              🤝 {{ loanSuggested.tag.party }}
+              {{ loanSuggested.tag.role === 'collect' ? 'ติดเงินคุณอยู่' : 'คุณติดเงินอยู่' }}
+              {{ formatBaht(loanSuggested.outstanding) }} — บันทึกเป็น "{{ LOAN_ROLE_LABELS[loanSuggested.tag.role] }}" ให้แล้ว
+              <template v-if="form.amount > 0">
+                (เหลือ {{ formatBaht(Math.max(0, loanSuggested.outstanding - form.amount)) }})
+              </template>
+            </p>
+
+            <p v-if="recalled" class="small muted mb-2" data-test="memory-hint">
+              💡 {{ recalled.sameAmount ? 'เคยบันทึกยอดนี้กับรายการนี้แล้ว' : 'เคยบันทึกรายการนี้มาก่อน' }}
+              เติมหมวด{{ recalled.note ? 'และรายละเอียด' : '' }}ให้ตามครั้งก่อน แก้ได้ก่อนบันทึก
+            </p>
+            <p v-if="deductionReceipt" class="small muted mb-2" data-test="deduction-receipt-hint">
+              🧾 ใบเสร็จ{{ deductionReceipt.label }} — ตอนยื่นภาษีระบบดึงไปเป็นค่าลดหย่อนให้อัตโนมัติ
+              {{ deductionReceipt.categoryKey === 'savingInvest' ? 'และจดลงหน้ากองทุนลดหย่อนเพื่อติดตามวันที่ขายได้' : '' }}
+            </p>
 
             <button class="btn btn-primary btn-block" type="submit" :disabled="saving">
               {{ saving ? 'กำลังบันทึก...' : 'บันทึก' }}

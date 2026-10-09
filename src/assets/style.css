@@ -2850,6 +2850,12 @@ tr.editing td { background: var(--accent-soft); }
    ========================================================= */
 .quick-backdrop { z-index: 95; align-items: flex-end; }
 .quick-panel { width: min(460px, 100%); margin-bottom: 4vh; max-height: 92vh; overflow-y: auto; }
+.sentence-row { display: flex; gap: 6px; }
+.sentence-row input { flex: 1; min-width: 0; }
+.mic-btn { flex: none; min-width: 44px; padding: 0 10px; font-size: 18px; }
+.mic-btn.listening { animation: mic-pulse 1.2s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .mic-btn.listening { animation: none; } }
 .slip-review dl { display: grid; gap: 4px; margin: 6px 0; font-size: 13.5px; }
 .slip-review dl > div { display: flex; justify-content: space-between; gap: 10px; }
 .slip-review dt { color: var(--text-dim); flex-shrink: 0; }

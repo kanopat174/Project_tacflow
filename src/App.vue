@@ -12,26 +12,37 @@ import MascotGuide from '@/components/MascotGuide.vue'
 import FeatureIntro from '@/components/FeatureIntro.vue'
 import QuickAdd from '@/components/QuickAdd.vue'
 import CelebrationOverlay from '@/components/CelebrationOverlay.vue'
+import AppLock from '@/components/AppLock.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGameStore } from '@/stores/game'
+import { useLockStore } from '@/stores/lock'
 import { useUiStore } from '@/stores/ui'
 
 // แถบค้นหา Ctrl+K โหลดแยกไฟล์ตอนเปิดครั้งแรก ไม่เพิ่มขนาดหน้าแรกของเว็บ
 const CommandPalette = defineAsyncComponent(() => import('@/components/CommandPalette.vue'))
+// สแกนสลิปหลายใบโหลดเฉพาะตอนเลือกหรือแชร์สลิปมาหลายใบ
+const BulkSlipImport = defineAsyncComponent(() => import('@/components/BulkSlipImport.vue'))
 
 // สร้าง store ของเหรียญรางวัลตั้งแต่เปิดเว็บ ให้คอยตรวจเหรียญใหม่และอารมณ์ของตัวการ์ตูนตลอด
 useGameStore()
 const auth = useAuthStore()
 const ui = useUiStore()
+// สร้างก่อนกู้ session เสมอ จะได้รู้ว่าเป็นการเปิดเว็บใหม่ (ต้องใส่ PIN) ไม่ใช่การล็อกอินด้วยรหัสผ่าน
+const lock = useLockStore()
+lock.start()
 
 function onGlobalKey(event: KeyboardEvent) {
+  if (lock.locked) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     ui.paletteOpen = !ui.paletteOpen
   }
 }
 onMounted(() => document.addEventListener('keydown', onGlobalKey))
-onBeforeUnmount(() => document.removeEventListener('keydown', onGlobalKey))
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onGlobalKey)
+  lock.stop()
+})
 
 // การกู้ session จาก token ทำใน router guard (`router.beforeEach`) ก่อนวาดหน้าแรกเสมอ
 </script>
@@ -44,7 +55,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onGlobalKey))
     สมาชิก: เมนูด้านข้าง + แถบบน (คอม/ไอแพด) และแถบล่าง (มือถือ) — ใช้งานทั้งวันจึงเน้นหาเมนูเจอเร็ว
     ผู้เยี่ยมชม: หัวเว็บแนวนอนแบบหน้าแนะนำเว็บ
   -->
-  <div v-if="auth.isLoggedIn" class="app-shell">
+  <!-- inert ตอนล็อก: กด Tab หรือคีย์ลัดไปโดนเนื้อหาด้านหลังหน้าจอ PIN ไม่ได้ -->
+  <div v-if="auth.isLoggedIn" class="app-shell" :inert="lock.locked">
     <SideNav />
     <div class="app-main">
       <TopBar />
@@ -72,7 +84,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onGlobalKey))
   <ToastZone />
   <QuickAdd />
   <CommandPalette v-if="ui.paletteOpen" />
+  <BulkSlipImport v-if="auth.isLoggedIn && ui.bulkSlipFiles" />
   <MascotGuide />
   <FeatureIntro />
   <CelebrationOverlay />
+  <AppLock v-if="auth.isLoggedIn && lock.locked" />
 </template>

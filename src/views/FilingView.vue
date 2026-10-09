@@ -5,6 +5,8 @@ import AppIcon from '@/components/AppIcon.vue'
 import MoneyField from '@/components/MoneyField.vue'
 import DeductionAdvisor from '@/components/DeductionAdvisor.vue'
 import LedgerImportPanel from '@/components/LedgerImportPanel.vue'
+import DeductionImportPanel from '@/components/DeductionImportPanel.vue'
+import { previousYearFiling } from '@/services/deductionImport'
 import CertificateImportPanel, { type CertificateApply } from '@/components/CertificateImportPanel.vue'
 import DependentsField from '@/components/DependentsField.vue'
 import ActualExpensePanel from '@/components/ActualExpensePanel.vue'
@@ -25,7 +27,7 @@ import {
   isDeductionAvailable,
   type DeductionGroup,
 } from '@/data/taxData'
-import { ApiError } from '@/services/api'
+import { ApiError, api, type Filing } from '@/services/api'
 import { formatBaht, roundMoney } from '@/services/taxEngine'
 import { useFilingStore, type StepId } from '@/stores/filing'
 import { useToastStore } from '@/stores/toast'
@@ -87,6 +89,39 @@ onMounted(() => {
   filing.loadDraft()
   filing.prefillFromAccount()
 })
+
+/* ---------- เริ่มจากแบบปีก่อน ---------- */
+
+/** แบบภาษีของปีก่อนหน้าปีที่กำลังกรอก — มีแล้วเสนอให้ยกข้อมูลส่วนตัวและผู้อยู่ในอุปการะมาได้ */
+const previousFiling = ref<Filing | null>(null)
+const carriedOver = ref(false)
+
+watch(
+  () => [filing.taxpayer.taxYear, gate.isGuest.value] as const,
+  async ([taxYear, guest]) => {
+    previousFiling.value = null
+    carriedOver.value = false
+    if (guest) return
+    try {
+      previousFiling.value = previousYearFiling(await api.filings(), taxYear)
+    } catch {
+      /* โหลดประวัติไม่ได้ ก็แค่ไม่เสนอให้ยกข้อมูล */
+    }
+  },
+  { immediate: true },
+)
+
+function useLastYear() {
+  if (!previousFiling.value) return
+  filing.applyPreviousYear(previousFiling.value.snapshot)
+  carriedOver.value = true
+  toast.success(`ยกข้อมูลจากแบบปี ${previousFiling.value.taxYear} แล้ว ตรวจอีกครั้ง — ค่าลดหย่อนที่จ่ายทุกปีดึงได้ในขั้นตอนที่ 3`)
+}
+
+/** เติมค่าลดหย่อนที่ดึงอัตโนมัติ — เขียนทับเฉพาะช่องที่ผู้ใช้เลือก */
+function applyDeductionImport(amounts: Record<string, number>) {
+  for (const [key, amount] of Object.entries(amounts)) filing.deductions[key] = roundMoney(amount)
+}
 
 function next() {
   showErrors.value = true
@@ -230,6 +265,17 @@ function goToStatus() {
 
         <div class="work-layout">
           <div>
+            <!-- ขั้นตอนที่ 1: เสนอให้ยกข้อมูลจากแบบปีก่อน -->
+            <div
+              v-if="filing.currentStep === 1 && previousFiling && !carriedOver"
+              class="notice mb-2"
+              data-test="carry-over"
+            >
+              <strong>มีแบบภาษีปี {{ previousFiling.taxYear }} อยู่แล้ว</strong>
+              ยกสถานภาพ วันเกิด และผู้อยู่ในอุปการะมาใช้ต่อ ไม่ต้องกรอกใหม่
+              <button class="btn btn-ghost btn-sm" type="button" @click="useLastYear">ใช้ข้อมูลปีก่อน</button>
+            </div>
+
             <!-- ขั้นตอนที่ 1: ข้อมูลผู้เสียภาษี -->
             <section v-if="filing.currentStep === 1" class="card">
               <div class="card-head">
@@ -390,6 +436,11 @@ function goToStatus() {
                 ค่าลดหย่อนคู่สมรสและเบี้ยประกันชีวิตคู่สมรสใช้ได้เฉพาะเมื่อจดทะเบียนสมรสและคู่สมรสไม่มีเงินได้
                 แต่สถานภาพในขั้นตอนที่ 1 ไม่ได้เลือก "สมรส — ยื่นรวมกับคู่สมรส" กรุณาตรวจอีกครั้ง
               </div>
+              <DeductionImportPanel
+                v-if="!gate.isGuest.value"
+                :tax-year="filing.taxpayer.taxYear"
+                @apply="applyDeductionImport"
+              />
               <DeductionAdvisor
                 :income="filing.income"
                 :deductions="filing.deductions"

@@ -10,7 +10,15 @@
  */
 
 import { categoriesOf, type WorkspaceMode } from '@/data/workspaceModes'
-import { dueRecurringDates, type Evidence, type Goal, type LedgerEntry, type RecurringTemplate } from './ledgerEngine'
+import {
+  dueRecurringDates,
+  type Evidence,
+  type Goal,
+  type LedgerEntry,
+  type LoanRole,
+  type LoanTag,
+  type RecurringTemplate,
+} from './ledgerEngine'
 import { fileStore } from './fileStore'
 import { sanitizeSlipMeta } from './slipParse'
 import { INSTALLMENT_COUNT, canPayInInstallments, type PaymentPlan } from './latePayment'
@@ -227,6 +235,16 @@ function hashPassword(password: string): string {
 
 function randomId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
+}
+
+const LOAN_ROLES: LoanRole[] = ['lend', 'collect', 'borrow', 'repay']
+
+/** ป้ายเงินยืมต้องมีบทบาทที่รู้จักและชื่อคู่ยืม ไม่งั้นไม่เก็บ */
+function sanitizeLoan(loan: unknown): LoanTag | null {
+  if (!loan || typeof loan !== 'object') return null
+  const { role, party } = loan as Partial<LoanTag>
+  const name = typeof party === 'string' ? party.trim().slice(0, 80) : ''
+  return role && LOAN_ROLES.includes(role) && name ? { role, party: name } : null
 }
 
 /** YYYY-MM-DD ที่มีอยู่จริงในปฏิทิน (กัน 2026-02-31 ซึ่งบางเบราว์เซอร์เลื่อนเป็นมีนาคมให้เอง) */
@@ -875,7 +893,7 @@ export const api = {
     }
     if (!input.categoryKey) throw new ApiError('กรุณาเลือกหมวดของรายการ')
 
-    const { slip, ...rest } = input
+    const { slip, loan, ...rest } = input
     const record: EntryRecord = {
       ...rest,
       amount,
@@ -887,6 +905,8 @@ export const api = {
     // ข้อมูลจากสลิปมาจาก OCR — ตรวจรูปแบบทุกช่องก่อนเก็บ
     const meta = slip === undefined ? undefined : sanitizeSlipMeta(slip)
     if (meta) record.slip = meta
+    const loanTag = sanitizeLoan(loan)
+    if (loanTag) record.loan = loanTag
     db.entries.push(record)
     writeDatabase(db)
     return delay(record)

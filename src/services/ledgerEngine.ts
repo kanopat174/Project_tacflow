@@ -36,6 +36,21 @@ export interface LedgerEntry {
   symbol?: string
   /** ข้อมูลจากสลิปโอนเงิน — มีเฉพาะรายการที่บันทึกจากสลิป ช่องที่อ่านไม่ได้เป็น null */
   slip?: SlipMeta
+  /** รายการนี้เป็นเงินยืม — ใช้ติดตามว่าใครติดเงินใคร (ดู services/loans) */
+  loan?: LoanTag
+}
+
+/**
+ * บทบาทของรายการเงินยืม
+ *  lend = ให้คนอื่นยืม (เงินออก) · collect = ได้เงินที่ให้ยืมคืน (เงินเข้า)
+ *  borrow = ยืมคนอื่นมา (เงินเข้า) · repay = คืนเงินที่ยืมมา (เงินออก)
+ */
+export type LoanRole = 'lend' | 'collect' | 'borrow' | 'repay'
+
+export interface LoanTag {
+  role: LoanRole
+  /** ชื่อคู่ยืม ตามที่ผู้ใช้กรอกหรืออ่านจากสลิป */
+  party: string
 }
 
 export type RecipientType = 'person' | 'company'

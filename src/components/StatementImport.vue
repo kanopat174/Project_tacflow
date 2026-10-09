@@ -7,14 +7,17 @@ import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { categoriesOf } from '@/data/workspaceModes'
 import { ApiError } from '@/services/api'
+import { loadMemory, recallEntry } from '@/services/entryMemory'
 import { importStatement, type ImportedRow } from '@/services/ledgerCsv'
 import { formatBaht, thaiDate } from '@/services/taxEngine'
+import { useAuthStore } from '@/stores/auth'
 import { useLedgerStore } from '@/stores/ledger'
 import { useToastStore } from '@/stores/toast'
 import { useFx } from '@/composables/useFx'
 
 const emit = defineEmits<{ close: [] }>()
 
+const auth = useAuthStore()
 const ledger = useLedgerStore()
 const toast = useToastStore()
 const fx = useFx()
@@ -49,7 +52,12 @@ async function pick(files: FileList | null) {
     return
   }
   fileName.value = file.name
-  rows.value = result.rows.map((r) => ({ ...r, include: !r.duplicate }))
+  // ข้อความที่เคยนำเข้าหรือจดไว้ ใช้หมวดที่ผู้ใช้เลือกครั้งก่อนแทนการเดาจากคำค้น
+  const memory = auth.user ? loadMemory(auth.user.id) : []
+  rows.value = result.rows.map((r) => {
+    const hit = recallEntry(memory, { source: r.note, type: r.type, mode: ledger.mode, amount: r.amount })
+    return { ...r, categoryKey: hit?.categoryKey ?? r.categoryKey, include: !r.duplicate }
+  })
   skipped.value = result.skipped
 }
 

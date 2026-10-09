@@ -24,7 +24,7 @@ function sample(): BackupFile {
       challenges: [],
     },
     files: { ev1: 'data:image/png;base64,iVBORw0KGgo=' },
-    extras: { draft: null, game: null },
+    extras: { draft: null, game: null, memory: null, funds: null },
   }
 }
 
