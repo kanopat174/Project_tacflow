@@ -9,6 +9,7 @@ import { computed, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import UserAvatar from './UserAvatar.vue'
+import InstallAppButton from './InstallAppButton.vue'
 import { MEMBER_NAV, isActive } from '@/data/memberNav'
 import { introForRoute } from '@/data/featureIntros'
 import { useAuthStore } from '@/stores/auth'
@@ -106,6 +107,7 @@ async function handleLogout() {
     </nav>
 
     <div class="side-quick">
+      <InstallAppButton button-class="side-link" @done="ui.navOpen = false">ติดตั้งเป็นแอป</InstallAppButton>
       <button type="button" class="side-link" @click="toggleTheme($event)">
         <AppIcon :name="theme.resolved.value === 'dark' ? 'sun' : 'moon'" :size="19" />
         <span>{{ theme.resolved.value === 'dark' ? 'เปลี่ยนเป็นธีมสว่าง' : 'เปลี่ยนเป็นธีมมืด' }}</span>

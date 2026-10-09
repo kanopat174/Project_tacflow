@@ -7,6 +7,7 @@ import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import ThemePicker from './ThemePicker.vue'
+import InstallAppButton from './InstallAppButton.vue'
 import { useUiStore } from '@/stores/ui'
 import { useTheme } from '@/composables/useTheme'
 import { useFx } from '@/composables/useFx'
@@ -74,6 +75,7 @@ watch(() => route.fullPath, () => (menuOpen.value = false))
             <AppIcon name="user" :size="17" />
             เข้าสู่ระบบ
           </button>
+          <InstallAppButton button-class="">ติดตั้งเป็นแอป</InstallAppButton>
           <button type="button" @click="((menuOpen = false), (ui.paletteOpen = true))">
             <AppIcon name="search" :size="17" />
             ค้นหา
