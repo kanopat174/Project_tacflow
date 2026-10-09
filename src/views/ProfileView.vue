@@ -105,7 +105,14 @@ function resetDemo() {
 
 const pwa = usePwaInstall()
 
+/** เบราว์เซอร์ไม่มีหน้าต่างติดตั้งให้ (เช่น iPhone) — แสดงวิธีติดตั้งเองแทน */
+const showInstallHint = ref(false)
+
 async function installApp() {
+  if (!pwa.canInstall.value) {
+    showInstallHint.value = !showInstallHint.value
+    return
+  }
   if (await pwa.install()) toast.success('ติดตั้ง Jodwise เป็นแอปแล้ว')
 }
 
@@ -357,7 +364,7 @@ function goBackToFiling() {
               <RouterLink class="btn btn-ghost btn-block" to="/wrapped">สรุปปีของฉัน</RouterLink>
               <RouterLink class="btn btn-ghost btn-block" to="/quiz">เล่นควิซภาษี</RouterLink>
               <button
-                v-if="pwa.canInstall.value && !pwa.installed.value"
+                v-if="!pwa.installed.value"
                 class="btn btn-ghost btn-block"
                 type="button"
                 @click="installApp"
@@ -365,6 +372,9 @@ function goBackToFiling() {
                 <AppIcon name="download" :size="17" />
                 ติดตั้งเป็นแอปบนเครื่องนี้
               </button>
+              <p v-if="showInstallHint && !pwa.installed.value" class="install-hint" role="status">
+                {{ pwa.hint() }}
+              </p>
               <RouterLink class="btn btn-ghost btn-block" to="/documents">จัดการเอกสารแนบ</RouterLink>
             </div>
           </section>

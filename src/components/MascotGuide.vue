@@ -14,6 +14,8 @@ import { HOVER_LINES, IDLE_LINES, MASCOT_SOUND, TICKLE_LINES, pick } from '@/dat
 import { burst, centerOf, motionAllowed } from '@/services/fx'
 import { useMascotFxStore } from '@/stores/mascotFx'
 import { useTheme } from '@/composables/useTheme'
+import { usePwaInstall } from '@/composables/usePwaInstall'
+import { useToastStore } from '@/stores/toast'
 import { daysUntilYearEnd, suggestDeductions } from '@/services/deductionAdvisor'
 import { upcomingDeadlines } from '@/services/taxCalendar'
 import { useAuthStore } from '@/stores/auth'
@@ -37,6 +39,8 @@ const filing = useFilingStore()
 const ledger = useLedgerStore()
 const router = useRouter()
 const route = useRoute()
+const pwa = usePwaInstall()
+const toast = useToastStore()
 
 const mascot = computed(() => findMascot(theme.mascot.value))
 
@@ -58,6 +62,7 @@ function context(): GuideContext {
     advice: suggestDeductions(filing.income, filing.deductions, filing.withholdingTax, 5, filing.taxOptions),
     daysToYearEnd: daysUntilYearEnd(),
     nearest: upcomingDeadlines([...new Set(ledger.workspaces.map((w) => w.mode))])[0] ?? null,
+    app: { installed: pwa.installed.value, canPrompt: !!pwa.canInstall.value, hint: pwa.hint() },
   }
 }
 
@@ -88,9 +93,19 @@ function choose(option: GuideOption) {
   reply(option.next)
 }
 
-function go(action: GuideAction) {
+async function go(action: GuideAction) {
+  if (action.run === 'install') {
+    if (await pwa.install()) {
+      toast.success('ติดตั้ง Jodwise เป็นแอปแล้ว')
+      open.value = false
+    } else {
+      // กดยกเลิก หรือเบราว์เซอร์ไม่ให้หน้าต่างติดตั้งแล้ว — ตอบใหม่ด้วยวิธีติดตั้งเอง
+      reply('install')
+    }
+    return
+  }
   open.value = false
-  if (route.fullPath !== action.to) router.push(action.to)
+  if (action.to && route.fullPath !== action.to) router.push(action.to)
 }
 
 /** เริ่มบทสนทนาใหม่ */
@@ -311,7 +326,7 @@ onBeforeUnmount(() => {
               <div v-if="message.actions?.length" class="guide-actions">
                 <button
                   v-for="action in message.actions"
-                  :key="action.to + action.label"
+                  :key="(action.to ?? action.run) + action.label"
                   class="btn btn-primary btn-sm"
                   type="button"
                   @click="go(action)"

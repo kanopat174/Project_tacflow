@@ -100,13 +100,43 @@ describe('ตัวการ์ตูนผู้ช่วย', () => {
       advice: { suggestions: [], currentTax: 0, taxIfAll: 0, amountIfAll: 0, reason: 'no-income' },
       daysToYearEnd: 86,
       nearest: null,
+      app: { installed: false, canPrompt: false, hint: 'วิธีติดตั้ง' },
     }
     for (const [id, build] of Object.entries(GUIDE_FLOW)) {
       const node = build(ctx)
       expect(node.text.length, id).toBeGreaterThan(0)
       expect(node.options.length + node.actions.length, id).toBeGreaterThan(0)
       for (const option of node.options) expect(GUIDE_FLOW[option.next], `${id} → ${option.next}`).toBeTruthy()
+      for (const action of node.actions) expect(action.to ?? action.run, `${id} → ${action.label}`).toBeTruthy()
     }
+  })
+
+  it('ถามเรื่องติดตั้งแอป: ไม่มีหน้าต่างติดตั้ง (เช่น iPhone) ก็บอกวิธีติดตั้งเอง', async () => {
+    const { wrapper } = setup()
+    await wrapper.find('.guide-fab').trigger('click')
+    await flushPromises()
+    await chip(wrapper, 'ติดตั้งเป็นแอปบนมือถือ').trigger('click')
+    await flushPromises()
+
+    const bots = wrapper.findAll('.guide-msg.bot')
+    expect(bots[bots.length - 1]!.text()).toContain('หน้าจอ')
+    wrapper.unmount()
+  })
+
+  it('ติดตั้งแล้วไม่ต้องชวนติดตั้งซ้ำ และเบราว์เซอร์ที่ติดตั้งได้มีปุ่มติดตั้งเลย', () => {
+    const base: Omit<GuideContext, 'app'> = {
+      loggedIn: false,
+      workspaceId: null,
+      workspaceName: '',
+      advice: { suggestions: [], currentTax: 0, taxIfAll: 0, amountIfAll: 0, reason: 'no-income' },
+      daysToYearEnd: 1,
+      nearest: null,
+    }
+    const installed: GuideContext = { ...base, app: { installed: true, canPrompt: false, hint: '' } }
+    expect(GUIDE_FLOW.root!(installed).options.map((o) => o.next)).not.toContain('install')
+
+    const chrome: GuideContext = { ...base, app: { installed: false, canPrompt: true, hint: '' } }
+    expect(GUIDE_FLOW.install!(chrome).actions).toEqual([{ label: 'ติดตั้งเลย', run: 'install' }])
   })
 })
 

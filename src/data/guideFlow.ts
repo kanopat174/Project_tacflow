@@ -19,11 +19,22 @@ export interface GuideContext {
   advice: AdvisorResult
   daysToYearEnd: number
   nearest: Deadline | null
+  /** สถานะการติดตั้งเป็นแอปบนเครื่องนี้ */
+  app: {
+    installed: boolean
+    /** เบราว์เซอร์มีหน้าต่างติดตั้งให้เรียกได้เลย (Chrome/Edge) */
+    canPrompt: boolean
+    /** วิธีติดตั้งเองตามระบบของเครื่อง */
+    hint: string
+  }
 }
 
 export interface GuideAction {
   label: string
-  to: string
+  /** หน้าที่จะพาไป — ไม่ใส่เมื่อเป็นปุ่มสั่งงาน (run) */
+  to?: string
+  /** สั่งงานแทนการเปลี่ยนหน้า */
+  run?: 'install'
 }
 
 export interface GuideOption {
@@ -57,7 +68,7 @@ const deadlineText = (d: Deadline) =>
   d.daysLeft === 0 ? `วันนี้เป็นกำหนด "${d.title}"` : `อีก ${d.daysLeft} วันถึงกำหนด "${d.title}"`
 
 export const GUIDE_FLOW: Record<string, Build> = {
-  root: () => ({
+  root: (ctx) => ({
     text: 'วันนี้จะทำเรื่องอะไรเอ่ย?',
     actions: [],
     options: [
@@ -65,8 +76,29 @@ export const GUIDE_FLOW: Record<string, Build> = {
       { label: 'เรื่องภาษี', next: 'tax' },
       { label: 'ยังไม่รู้เลย แนะนำหน่อย', next: 'suggest' },
       { label: 'เล่นสนุก ๆ', next: 'fun' },
+      ...(ctx.app.installed ? [] : [{ label: 'ติดตั้งเป็นแอปบนมือถือ', next: 'install' }]),
     ],
   }),
+
+  /* ---------- ติดตั้งเป็นแอป ---------- */
+
+  install: (ctx) => {
+    if (ctx.app.installed) {
+      return { text: 'เครื่องนี้ติดตั้ง Jodwise เป็นแอปไว้แล้ว เปิดจากไอคอนบนหน้าจอได้เลย', actions: [], options: [BACK] }
+    }
+    if (ctx.app.canPrompt) {
+      return {
+        text: 'ติดตั้งแล้วจะมีไอคอนบนหน้าจอ เปิดได้เหมือนแอปทั่วไป และใช้ได้แม้ไม่มีเน็ต กดปุ่มด้านล่างได้เลย',
+        actions: [{ label: 'ติดตั้งเลย', run: 'install' }],
+        options: [BACK],
+      }
+    }
+    return {
+      text: `ติดตั้งแล้วจะมีไอคอนบนหน้าจอ เปิดได้เหมือนแอปทั่วไป ทำแบบนี้นะ — ${ctx.app.hint}`,
+      actions: [],
+      options: [BACK],
+    }
+  },
 
   /* ---------- เล่นสนุก ---------- */
 

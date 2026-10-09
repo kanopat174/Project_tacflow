@@ -3207,3 +3207,14 @@ tr.editing td { background: var(--accent-soft); }
 .story-nav:disabled { opacity: 0.3; }
 .story-nav.prev { left: 10px; }
 .story-nav.next { right: 10px; }
+
+/* วิธีติดตั้งเป็นแอปเอง (เบราว์เซอร์ที่ไม่มีหน้าต่างติดตั้งให้ เช่น iPhone) */
+.install-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
