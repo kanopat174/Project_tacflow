@@ -172,7 +172,7 @@ function exportPdf() {
             </div>
           </div>
 
-          <div class="table-wrap">
+          <div class="table-wrap table-fit">
             <table>
               <thead>
                 <tr>

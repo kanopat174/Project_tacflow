@@ -203,7 +203,7 @@ const FEATURES = [
             แม้รายได้ทั้งปีจะสูงแค่ไหนก็ตาม
           </p>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap table-fit">
           <table>
             <thead>
               <tr>

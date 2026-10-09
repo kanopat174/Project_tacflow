@@ -77,7 +77,7 @@ function apply() {
       </div>
 
       <template v-else>
-        <div v-if="preview.lines.length" class="table-wrap">
+        <div v-if="preview.lines.length" class="table-wrap table-fit">
           <table>
             <thead>
               <tr>

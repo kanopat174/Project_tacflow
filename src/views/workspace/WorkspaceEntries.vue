@@ -398,7 +398,7 @@ function exportCsv() {
           <p>ลองเปลี่ยนคำค้นหรือล้างตัวกรอง</p>
         </div>
 
-        <div v-else class="table-wrap">
+        <div v-else class="table-wrap entries-table">
           <table>
             <thead>
               <tr>

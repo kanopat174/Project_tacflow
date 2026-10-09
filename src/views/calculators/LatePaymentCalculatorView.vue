@@ -143,7 +143,7 @@ function exportPdf() {
               <strong>ยื่นเกินกำหนดแล้วผ่อนไม่ได้</strong>
               ตารางด้านล่างคือสิ่งที่ได้ถ้ายื่นทันวันที่ {{ thaiDate(form.deadline) }}
             </div>
-            <div class="table-wrap">
+            <div class="table-wrap table-fit">
               <table>
                 <thead>
                   <tr>

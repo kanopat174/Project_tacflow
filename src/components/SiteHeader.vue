@@ -4,7 +4,7 @@
  * สมาชิกใช้เมนูด้านข้างใน SideNav.vue แทน
  */
 import { ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import ThemePicker from './ThemePicker.vue'
 import { useUiStore } from '@/stores/ui'
@@ -23,6 +23,7 @@ const NAV_ITEMS = [
 
 const ui = useUiStore()
 const route = useRoute()
+const router = useRouter()
 const menuOpen = ref(false)
 const theme = useTheme()
 const fx = useFx()
@@ -68,6 +69,11 @@ watch(() => route.fullPath, () => (menuOpen.value = false))
         </RouterLink>
         <!-- มือถือ: ปุ่มที่ไม่พอที่บนหัวเว็บย้ายมาอยู่ในเมนู (ซ่อนบนจอใหญ่ด้วย CSS) -->
         <div class="nav-extra">
+          <!-- จอแคบมากซ่อนปุ่มเข้าสู่ระบบบนหัวเว็บ จึงต้องมีทางเข้าในเมนูนี้ -->
+          <button type="button" class="nav-extra-login" @click="router.push('/login')">
+            <AppIcon name="user" :size="17" />
+            เข้าสู่ระบบ
+          </button>
           <button type="button" @click="((menuOpen = false), (ui.paletteOpen = true))">
             <AppIcon name="search" :size="17" />
             ค้นหา

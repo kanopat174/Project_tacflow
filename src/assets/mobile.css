@@ -1,0 +1,248 @@
+/* =========================================================
+   ปรับหน้าจอมือถือ — ทุกกฎอยู่ใน media query ของจอแคบ หน้าตาบนคอมไม่เปลี่ยน
+   โหลดเป็นไฟล์สุดท้าย (main.ts) จึงทับกฎเดิมของ style.css / shell.css ได้
+   ========================================================= */
+
+/* ปุ่มลัดในลิ้นชักเมนูของสมาชิก — มีเฉพาะมือถือ (คอม/ไอแพดมีปุ่มเหล่านี้บนแถบบนอยู่แล้ว) */
+.side-quick {
+  display: none;
+}
+/* ลิงก์เข้าสู่ระบบในเมนูหัวเว็บ — มีเฉพาะจอแคบมากที่ซ่อนปุ่มบนหัวเว็บ */
+.nav-extra-login {
+  display: none !important;
+}
+
+/* ---------- มือถือ (เท่ากับจุดที่แถบล่างโผล่) ---------- */
+@media (max-width: 759px) {
+  /* แถบบน: เหลือ ชื่อหน้า · ค้นหา · สีเว็บ · กระดิ่ง — สลับธีมและแนะนำหน้านี้ย้ายไปอยู่ในเมนู */
+  .top-bar .top-help,
+  .top-bar .theme-toggle {
+    display: none;
+  }
+  .top-bar .top-actions {
+    gap: 4px;
+  }
+  .top-title {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .side-quick {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .side-quick .side-link {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 15.5px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  /* ตัวการ์ตูนผู้ช่วยเล็กลงและชิดขอบขึ้น บังเนื้อหาน้อยลง */
+  .guide {
+    right: 12px;
+  }
+  .guide-fab {
+    width: 52px;
+    height: 52px;
+    padding: 5px;
+  }
+}
+
+/* ---------- จอโทรศัพท์ทั่วไป ---------- */
+@media (max-width: 620px) {
+  /* แท็บ: ห่อขึ้นบรรทัดใหม่แทนการเลื่อนข้างจนแท็บท้าย ๆ ถูกตัดหาย */
+  .tab-bar {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .tab-bar .tab {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  /* ขั้นตอนยื่นแบบ: ชื่อขั้นยาวให้ตัดบรรทัดภายในช่องของตัวเอง ไม่ล้นออกนอกพื้นสีของขั้นที่เลือก */
+  .step-item .t {
+    width: 100%;
+    align-items: center;
+  }
+  .step-item .t strong {
+    font-size: 12px;
+    white-space: normal;
+    line-height: 1.25;
+  }
+
+  /* ---------- ตาราง: วางทีละแถวเป็นการ์ด "ชื่อคอลัมน์ : ค่า" ไม่ต้องเลื่อนข้าง ----------
+   * ชื่อคอลัมน์ (data-label) ใส่ให้อัตโนมัติจาก services/tableLabels.ts
+   * ตารางแคบ (3 คอลัมน์) ใส่ .table-fit ไว้ ให้คงเป็นตารางแต่หดเต็มจอแทน */
+  .table-wrap:not(.table-fit) {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .table-wrap:not(.table-fit) table,
+  .table-wrap:not(.table-fit) tbody {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .table-wrap:not(.table-fit) thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .table-wrap:not(.table-fit) tr {
+    display: block;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+  .table-wrap:not(.table-fit) tr + tr {
+    margin-top: 8px;
+  }
+  .table-wrap:not(.table-fit) tr.active-row {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .table-wrap:not(.table-fit) td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+    border: 0;
+    white-space: normal;
+    text-align: right;
+    background: transparent !important;
+  }
+  .table-wrap:not(.table-fit) td::before {
+    content: attr(data-label);
+    flex: 0 1 auto;
+    text-align: left;
+    color: var(--text-dim);
+    font-family: var(--font-body, inherit);
+    font-size: 13px;
+    font-weight: 400;
+  }
+  .table-wrap:not(.table-fit) td:not([data-label])::before {
+    content: none;
+  }
+  .table-wrap:not(.table-fit) td:not([data-label]) {
+    justify-content: flex-end;
+  }
+  /* ช่องแรกเป็นหัวการ์ด */
+  .table-wrap:not(.table-fit) td:first-child {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 0 8px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    font-weight: 600;
+  }
+  .table-wrap:not(.table-fit) td:first-child::before {
+    content: none;
+  }
+
+  /* ตารางแคบ: เต็มความกว้างจอ ตัดบรรทัดในช่องได้ */
+  .table-wrap.table-fit table {
+    min-width: 0;
+  }
+  .table-wrap.table-fit th,
+  .table-wrap.table-fit td {
+    white-space: normal;
+    padding: 10px 12px;
+  }
+
+  /* ---------- รายการในสมุด: การ์ดกระชับ หมวด/ยอดเงินบนสุด วันที่กับปุ่มแก้ไขอยู่ล่าง ---------- */
+  .table-wrap.entries-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'cat money'
+      'note note'
+      'date act';
+    align-items: center;
+    gap: 4px 12px;
+  }
+  .table-wrap.entries-table tr.editing {
+    border-color: var(--accent);
+  }
+  .table-wrap.entries-table td,
+  .table-wrap.entries-table td:first-child {
+    display: block;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    text-align: left;
+    font-weight: inherit;
+  }
+  .table-wrap.entries-table td::before {
+    content: none;
+  }
+  .table-wrap.entries-table td:nth-child(1) {
+    grid-area: date;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .table-wrap.entries-table td:nth-child(2) {
+    grid-area: cat;
+    min-width: 0;
+  }
+  .table-wrap.entries-table td:nth-child(3) {
+    grid-area: note;
+    font-size: 14.5px;
+    overflow-wrap: anywhere;
+  }
+  .table-wrap.entries-table td:nth-child(4) {
+    grid-area: money;
+    text-align: right;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .table-wrap.entries-table td:nth-child(5) {
+    grid-area: act;
+    display: flex;
+    gap: 6px;
+  }
+  .table-wrap.entries-table .badge {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* ---------- จอแคบมาก (โทรศัพท์จอเล็ก ~360px) ---------- */
+@media (max-width: 480px) {
+  /* หัวเว็บผู้เยี่ยมชม: ซ่อนปุ่มเข้าสู่ระบบ (ไปอยู่ในเมนูแทน) เหลือปุ่มสมัครเป็นปุ่มหลักปุ่มเดียว */
+  .site-header .auth-zone .btn-ghost {
+    display: none;
+  }
+  .site-header .bar {
+    gap: 10px;
+  }
+  /* หน้าตาเหมือนปุ่มอื่นใน .nav-extra (style.css) แค่ต้องเปิดให้แสดง */
+  .site-nav.open .nav-extra-login {
+    display: flex !important;
+  }
+}

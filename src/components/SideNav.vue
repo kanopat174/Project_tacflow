@@ -5,22 +5,40 @@
  *  - ไอแพด/มือถือ: เป็นลิ้นชักเลื่อนออกจากซ้าย เปิดจากปุ่มเมนู ปิดด้วยฉากหลัง Escape หรือเปลี่ยนหน้า
  * ด้านล่างมีบัญชีผู้ใช้และปุ่มออกจากระบบ อยู่ที่เดิมเสมอ หาเจอง่าย
  */
-import { onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './AppIcon.vue'
 import UserAvatar from './UserAvatar.vue'
 import { MEMBER_NAV, isActive } from '@/data/memberNav'
+import { introForRoute } from '@/data/featureIntros'
 import { useAuthStore } from '@/stores/auth'
+import { useIntroStore } from '@/stores/intro'
 import { useToastStore } from '@/stores/toast'
 import { useUiStore } from '@/stores/ui'
+import { useTheme } from '@/composables/useTheme'
 import { useFx } from '@/composables/useFx'
 
 const auth = useAuthStore()
+const intro = useIntroStore()
 const toast = useToastStore()
 const ui = useUiStore()
 const route = useRoute()
 const router = useRouter()
+const theme = useTheme()
 const fx = useFx()
+
+/*
+ * มือถือ: แถบบนเหลือที่น้อย ปุ่มสลับธีมและปุ่มแนะนำหน้านี้จึงย้ายมาอยู่ในลิ้นชักนี้ (ซ่อนบนจอใหญ่ด้วย CSS)
+ */
+const hasIntro = computed(() => Boolean(introForRoute(route.name as string | undefined)))
+function toggleTheme(event: Event) {
+  theme.toggle()
+  fx.themeSwitched(theme.resolved.value === 'dark', event.currentTarget as Element)
+}
+function replayIntro() {
+  ui.navOpen = false
+  intro.replay()
+}
 
 /** กดโลโก้: เด้งเบา ๆ (กด 5 ครั้งติดกันมีของลับ) */
 function onBrand(event: Event) {
@@ -86,6 +104,17 @@ async function handleLogout() {
         </RouterLink>
       </div>
     </nav>
+
+    <div class="side-quick">
+      <button type="button" class="side-link" @click="toggleTheme($event)">
+        <AppIcon :name="theme.resolved.value === 'dark' ? 'sun' : 'moon'" :size="19" />
+        <span>{{ theme.resolved.value === 'dark' ? 'เปลี่ยนเป็นธีมสว่าง' : 'เปลี่ยนเป็นธีมมืด' }}</span>
+      </button>
+      <button v-if="hasIntro" type="button" class="side-link" @click="replayIntro">
+        <AppIcon name="info" :size="19" />
+        <span>แนะนำหน้านี้</span>
+      </button>
+    </div>
 
     <div class="side-account">
       <RouterLink to="/profile" class="side-user" :class="{ active: route.path === '/profile' }" title="โปรไฟล์และการตั้งค่า">

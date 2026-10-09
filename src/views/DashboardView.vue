@@ -565,6 +565,26 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 18px;
 }
+/* มือถือ: รายรับคู่รายจ่ายในแถวเดียว เหลือเก็บเต็มแถวล่าง — ไม่ต้องเลื่อนผ่านกล่องสามชั้นก่อนถึงกราฟ */
+@media (max-width: 620px) {
+  .kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .kpi-row > .kpi:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .kpi {
+    padding: 10px 12px;
+  }
+  .kpi strong {
+    font-size: 1.15rem;
+  }
+  .kpi-change {
+    font-size: 12px;
+  }
+}
 .kpi {
   display: grid;
   gap: 2px;
