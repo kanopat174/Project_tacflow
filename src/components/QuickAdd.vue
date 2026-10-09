@@ -213,6 +213,14 @@ watch(parsed, (p) => {
   })
   // ข้อความที่พิมพ์เป็นของผู้ใช้เอง เติมจากความจำแค่หมวด
   applyMemory(p.note, false)
+  // ประโยคบอกว่ายืมหรือคืนเงิน ("ยืมพี่ 2000") — รอ watch ของประเภทล้างบทบาทเดิมก่อนแล้วค่อยตั้ง
+  if (p.loan) {
+    const loan = p.loan
+    void nextTick(() => {
+      loanRole.value = loan.role
+      loanParty.value = loan.party
+    })
+  }
 })
 
 /* ---------- พูดเพื่อจด ---------- */
@@ -220,6 +228,8 @@ watch(parsed, (p) => {
 const speech = useSpeechInput(
   (text) => {
     // แปลงคำตัวเลขเป็นเลข แล้วส่งเข้าช่องพิมพ์ — ตัวแยกประโยคและความจำทำงานต่อเหมือนพิมพ์เอง
+    // ล้างก่อน พูดประโยคเดิมซ้ำแล้วฟอร์มจะเติมใหม่ แม้ผู้ใช้แก้ช่องด้านล่างไปแล้ว
+    sentence.value = ''
     sentence.value = normaliseSpokenEntry(text)
     if (!parsed.value) toast.error(`ได้ยินว่า "${text}" แต่ไม่เจอจำนวนเงิน พูดยอดเงินด้วย เช่น "หกสิบบาท"`)
   },
@@ -575,6 +585,8 @@ watch(open, async (isOpen) => {
     await prepare()
   } else {
     document.removeEventListener('keydown', onKeydown)
+    // ปิดหน้าต่างระหว่างฟัง — ปิดไมค์ด้วย ไม่งั้นค้างไปถึงครั้งหน้า
+    speech.cancel()
   }
 })
 
@@ -728,6 +740,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 <template v-else-if="parsed && workspace">
                   {{ parsed.type === 'income' ? 'รายรับ' : 'รายจ่าย' }} {{ formatBaht(parsed.amount) }} ·
                   {{ categoryLabel(workspace.mode, form.categoryKey) }} · {{ thaiDate(parsed.date) }}
+                  <template v-if="parsed.reason"> · เข้าใจว่า "{{ parsed.reason }}"</template>
                 </template>
                 <template v-else-if="sentence.trim()">ยังไม่เจอจำนวนเงิน ใส่ตัวเลขด้วย เช่น "ข้าว 60"</template>
                 <template v-else>หรือกรอกช่องด้านล่างเองก็ได้</template>

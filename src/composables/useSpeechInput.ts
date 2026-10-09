@@ -39,50 +39,124 @@ const ERRORS: Record<string, string> = {
   'audio-capture': 'ไม่พบไมโครโฟน',
 }
 
+/** ฟังนานสุดต่อครั้ง กันไมค์ค้างเปิดถ้าเบราว์เซอร์ไม่ตัดเอง */
+const MAX_LISTEN_MS = 15_000
+/** กดหยุดแล้วเบราว์เซอร์ต้องส่ง onend ภายในเวลานี้ ไม่งั้นถือว่าจบเอง */
+const STOP_GRACE_MS = 1_500
+
 /**
  * onFinal ถูกเรียกเมื่อพูดจบพร้อมข้อความทั้งหมด
  * interim คือข้อความระหว่างพูด ใช้แสดงให้เห็นว่าระบบได้ยินอะไร
+ *
+ * กันปัญหา "ใช้ได้ครั้งแรก ครั้งต่อไปกดไม่ติด":
+ *  - บางเครื่อง (Chrome บน Android) ไม่ส่ง onend หลังหยุด สถานะ listening เลยค้าง
+ *    และ QuickAdd ไม่เคยถูกถอดออกจากหน้า จึงค้างจนรีเฟรช — ตั้งเวลาปิดให้เองเสมอ
+ *  - start() โยน error ถ้าตัวเก่ายังไม่ปิดสนิท — ยกเลิกตัวเก่าก่อน และจับ error คืนสถานะ
+ *  - event ที่มาช้าจากตัวเก่าไม่ไปทับสถานะของตัวใหม่
+ *  - Android ส่งผลลัพธ์ซ้ำสะสม — ประกอบข้อความใหม่จากผลลัพธ์ทั้งหมดทุกครั้ง ไม่ต่อท้าย
  */
 export function useSpeechInput(onFinal: (text: string) => void, onError: (message: string) => void) {
   const listening = ref(false)
   const interim = ref('')
   let recognition: Recognition | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let finish: ((deliver: boolean) => void) | null = null
 
   function start() {
     const Klass = recognitionClass()
     if (!Klass || listening.value) return
-    recognition = new Klass()
-    recognition.lang = 'th-TH'
-    recognition.interimResults = true
-    recognition.maxAlternatives = 1
+    cancel()
+    const current = new Klass()
+    recognition = current
+    current.lang = 'th-TH'
+    current.interimResults = true
+    current.maxAlternatives = 1
     let finalText = ''
-    recognition.onresult = (event) => {
+    let liveText = ''
+    let done = false
+
+    const end = (deliver: boolean) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      if (recognition === current) {
+        recognition = null
+        finish = null
+        listening.value = false
+        interim.value = ''
+      }
+      // บางเครื่องจบโดยไม่ติดธง isFinal ใช้ข้อความล่าสุดที่ได้ยินแทน
+      const text = (finalText || liveText).trim()
+      if (deliver && text) onFinal(text)
+    }
+    finish = end
+
+    current.onresult = (event) => {
+      if (done) return
+      let final = ''
       let live = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i]!
-        if (result.isFinal) finalText += result[0].transcript
+        if (result.isFinal) final += result[0].transcript
         else live += result[0].transcript
       }
-      interim.value = finalText + live
+      finalText = final
+      liveText = final + live
+      interim.value = liveText
     }
-    recognition.onerror = (event) => {
+    current.onerror = (event) => {
+      if (done) return
       if (event.error !== 'aborted') onError(ERRORS[event.error] ?? 'รู้จำเสียงไม่สำเร็จ ลองอีกครั้ง')
+      if (event.error !== 'no-speech') end(false)
     }
-    recognition.onend = () => {
-      listening.value = false
-      interim.value = ''
-      recognition = null
-      if (finalText.trim()) onFinal(finalText.trim())
-    }
+    current.onend = () => end(true)
+
     listening.value = true
-    recognition.start()
+    try {
+      current.start()
+    } catch {
+      end(false)
+      onError('เปิดไมค์ไม่สำเร็จ ลองกดอีกครั้ง')
+      return
+    }
+    timer = setTimeout(stop, MAX_LISTEN_MS)
   }
 
+  /** หยุดฟังแล้วส่งข้อความที่ได้ยิน */
   function stop() {
-    recognition?.stop()
+    const current = recognition
+    const end = finish
+    if (!current || !end) return
+    try {
+      current.stop()
+    } catch {
+      /* ปิดไปแล้ว */
+    }
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      try {
+        current.abort()
+      } catch {
+        /* ปิดไปแล้ว */
+      }
+      end(true)
+    }, STOP_GRACE_MS)
   }
 
-  onBeforeUnmount(() => recognition?.abort())
+  /** ยกเลิกโดยไม่ส่งข้อความ เช่น ปิดหน้าต่าง */
+  function cancel() {
+    const current = recognition
+    const end = finish
+    if (!current || !end) return
+    try {
+      current.abort()
+    } catch {
+      /* ปิดไปแล้ว */
+    }
+    end(false)
+  }
 
-  return { listening, interim, start, stop, supported: speechSupported() }
+  onBeforeUnmount(cancel)
+
+  return { listening, interim, start, stop, cancel, supported: speechSupported() }
 }

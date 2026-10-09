@@ -6,11 +6,14 @@
  *   "+500 ขายของ"                 → รายรับ (เครื่องหมาย + บอกว่าเป็นเงินเข้า)
  *   "ค่าไฟ 1.2k 3/10"             → รายจ่าย 1,200 วันที่ 3 ต.ค.
  *
- * ประเภทเดาจากเครื่องหมายหรือคำ ถ้าไม่รู้ถือเป็นรายจ่าย เพราะคนจดรายจ่ายบ่อยกว่ามาก
+ *   "แม่ให้ 500" / "ให้แม่ 500"    → รายรับ / รายจ่าย (ถอดจากลำดับคำ ดู entryMeaning)
+ *
+ * ประเภทดูจากเครื่องหมาย แล้วความหมายของประโยค แล้วคำ ถ้าไม่รู้ถือเป็นรายจ่าย เพราะคนจดรายจ่ายบ่อยกว่ามาก
  */
 
 import type { EntryType, WorkspaceMode } from '@/data/workspaceModes'
 import { guessCategory, parseDate } from './ledgerCsv'
+import { inferMeaning, type Meaning } from './entryMeaning'
 
 export interface ParsedEntry {
   type: EntryType
@@ -19,6 +22,10 @@ export interface ParsedEntry {
   date: string
   note: string
   categoryKey: string
+  /** ระบบเข้าใจทิศทางเงินจากความหมายของประโยค เช่น "แม่ให้" */
+  reason?: string
+  /** ประโยคบอกว่าเป็นการยืมหรือคืนเงิน */
+  loan?: Meaning['loan']
 }
 
 const INCOME_WORDS = /เงินเดือน|รายรับ|รายได้|ได้รับ|ได้เงิน|รับเงิน|ขาย|โบนัส|ปันผล|ดอกเบี้ยรับ|ค่าจ้าง|ลูกค้าโอน|ค่าคอม|เงินคืน|ถูกหวย|salary|income|bonus|sold/i
@@ -85,8 +92,14 @@ export function parseQuickEntry(text: string, mode: WorkspaceMode, today: string
   rest = rest.replace(whole!, ' ')
 
   const note = rest.replace(/\s+/g, ' ').trim()
+  // ถอดความหมายจากลำดับคำก่อน ("แม่ให้" กับ "ให้แม่") แล้วค่อยเดาจากคำ
+  const meaning = sign ? null : inferMeaning(note)
   const type: EntryType =
-    sign === '+' ? 'income' : sign === '-' ? 'expense' : INCOME_WORDS.test(note) && !EXPENSE_WORDS.test(note) ? 'income' : 'expense'
+    sign === '+'
+      ? 'income'
+      : sign === '-'
+        ? 'expense'
+        : (meaning?.type ?? (INCOME_WORDS.test(note) && !EXPENSE_WORDS.test(note) ? 'income' : 'expense'))
 
   return {
     type,
@@ -94,5 +107,7 @@ export function parseQuickEntry(text: string, mode: WorkspaceMode, today: string
     date,
     note,
     categoryKey: guessCategory(note, type, mode),
+    ...(meaning ? { reason: meaning.reason } : {}),
+    ...(meaning?.loan ? { loan: meaning.loan } : {}),
   }
 }
