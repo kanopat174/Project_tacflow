@@ -50,28 +50,192 @@
 
   /* ตัวการ์ตูนผู้ช่วยเล็กลงและชิดขอบขึ้น บังเนื้อหาน้อยลง */
   .guide {
-    right: 12px;
+    right: 10px;
   }
   .guide-fab {
-    width: 52px;
-    height: 52px;
-    padding: 5px;
+    width: 46px;
+    height: 46px;
+    padding: 4px;
   }
 }
 
 /* ---------- จอโทรศัพท์ทั่วไป ---------- */
 @media (max-width: 620px) {
-  /* แท็บ: ห่อขึ้นบรรทัดใหม่แทนการเลื่อนข้างจนแท็บท้าย ๆ ถูกตัดหาย */
+  /* แท็บไม่กี่อัน (ส่วนของสมุดบัญชี): ตาราง 2 คอลัมน์ช่องเท่ากัน เห็นครบทุกแท็บโดยไม่ต้องเลื่อน */
   .tab-bar {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
     overflow: visible;
+    border-radius: 14px;
+    margin-bottom: var(--space-2);
   }
   .tab-bar .tab {
-    flex: 1 1 auto;
     justify-content: center;
+    min-width: 0;
     min-height: 40px;
+    padding: 0 8px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    white-space: normal;
+    line-height: 1.25;
+    text-align: center;
+  }
+  /* ช่องครึ่งจอแคบ ซ่อนไอคอนให้ชื่อแท็บอยู่บรรทัดเดียว */
+  .tab-bar:not(.tab-bar-scroll) .tab svg {
+    display: none;
+  }
+
+  /* แท็บหลายอัน (หมวดเครื่องคำนวณ): แถวเดียวเลื่อนข้าง แทนกล่องสูงครึ่งจอ
+   * แท็บที่เลือกถูกเลื่อนมากลางแถบเอง (CalculatorLayout) และขอบขวาจางลงบอกว่ายังเลื่อนต่อได้ */
+  .tab-bar.tab-bar-scroll {
+    position: relative;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    border-radius: 999px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .tab-bar.tab-bar-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-bar.tab-bar-scroll .tab {
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .tab-bar.tab-bar-scroll .tab:last-child {
+    margin-right: 20px;
+  }
+
+  /* ---------- ระยะห่างให้สมส่วนกับจอเล็ก ---------- */
+  /* หัวหน้า: ตัวหนังสือเล็กลงนิดให้เห็นเนื้อหาเร็วขึ้น */
+  .section-head h2 {
+    font-size: 23px;
+    line-height: 1.3;
+  }
+  .section-head p {
+    font-size: 15px;
+  }
+
+  /* การ์ดตัวเลขสรุป: ย่อตัวเลขให้ยอดหลักล้านพร้อมสตางค์อยู่ครบในการ์ดครึ่งจอ ไม่ถูกตัดเป็น "..." */
+  .card.stat {
+    min-height: 0;
+    gap: 4px;
+  }
+  .card.stat strong {
+    font-size: clamp(14px, 11.2cqi, 24px);
+  }
+  .card.stat .eyebrow {
+    font-size: 12.5px;
+  }
+
+  /* กล่องซ้อนในการ์ด: ลดระยะขอบไม่ให้เนื้อหาถูกบีบเหลือคอลัมน์แคบ */
+  .deadline-hero {
+    gap: 12px;
+    padding: 12px;
+  }
+  .deadline-hero .countdown {
+    min-width: 56px;
+    height: 56px;
+    border-radius: 14px;
+  }
+  .deadline-hero .countdown strong {
+    font-size: 22px;
+  }
+  .deadline-hero .deadline-text > span {
+    font-size: 15px;
+  }
+  .feature,
+  .category-card {
+    padding: var(--space-2);
+  }
+  .empty-state {
+    padding: var(--space-3) var(--space-2);
+  }
+  .empty-state .ico-big {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 12px;
+  }
+  .empty-state h3 {
+    font-size: 17px;
+  }
+  .empty-state p {
+    margin-bottom: var(--space-2);
+    font-size: 14.5px;
+  }
+
+  /* หัวสมุดบัญชี: ปก รูป และชื่อกะทัดรัดขึ้น ไม่กินจอเกือบครึ่งก่อนถึงรายการ */
+  .ws-profile {
+    margin: 12px 0 var(--space-2);
+  }
+  .ws-cover.empty {
+    height: 76px;
+  }
+  /* ปุ่มเปลี่ยนปกอยู่มุมบนขวา ไม่ทับชื่อสมุดที่อยู่ใต้ปก */
+  .ws-cover-actions {
+    top: 8px;
+    right: 8px;
+    bottom: auto;
+  }
+  .ws-cover-actions .btn {
+    min-height: 34px;
     padding: 0 12px;
-    font-size: 14px;
+    font-size: 13px;
+  }
+  .ws-identity {
+    gap: 8px 12px;
+  }
+  .ws-avatar {
+    margin-top: -30px;
+  }
+  .ws-avatar .avatar {
+    width: 64px !important;
+    height: 64px !important;
+    font-size: 26px !important;
+    border-width: 3px;
+  }
+  .ws-avatar .photo-btn.round {
+    width: 32px;
+    min-height: 32px;
+    height: 32px;
+    right: -4px;
+    bottom: 0;
+  }
+  .ws-avatar .photo-btn.round svg {
+    width: 14px;
+    height: 14px;
+  }
+  .ws-title {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  .ws-title h2 {
+    font-size: 19px;
+    line-height: 1.3;
+  }
+  .ws-title .muted,
+  .ws-title p {
+    font-size: 13.5px;
+  }
+  .ws-title-actions {
+    width: 100%;
+  }
+  .ws-title-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  /* รูปโปรไฟล์ไม่ต้องใหญ่เท่าบนคอม */
+  .profile-photo-card .avatar {
+    width: 76px !important;
+    height: 76px !important;
+    font-size: 30px !important;
   }
 
   /* ขั้นตอนยื่นแบบ: ชื่อขั้นยาวให้ตัดบรรทัดภายในช่องของตัวเอง ไม่ล้นออกนอกพื้นสีของขั้นที่เลือก */
