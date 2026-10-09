@@ -22,7 +22,29 @@
     }
   },
   "shortcuts": [
-    { "name": "คำนวณภาษี", "url": "/calculator/personal" },
-    { "name": "สมุดบัญชี", "url": "/workspaces" }
+    {
+      "name": "จดรายจ่าย",
+      "short_name": "จดรายจ่าย",
+      "url": "/dashboard?quick=expense",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "จดรายรับ",
+      "short_name": "จดรายรับ",
+      "url": "/dashboard?quick=income",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "สแกนสลิป",
+      "short_name": "สแกนสลิป",
+      "url": "/dashboard?quick=slip",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "พูดจด",
+      "short_name": "พูดจด",
+      "url": "/dashboard?quick=voice",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

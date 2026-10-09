@@ -106,6 +106,24 @@ const router = createRouter({
       meta: { title: 'กองทุนลดหย่อนของฉัน', requiresAuth: true },
     },
     {
+      path: '/debts',
+      name: 'debts',
+      component: () => import('@/views/DebtPlanView.vue'),
+      meta: { title: 'แผนปลดหนี้', requiresAuth: true },
+    },
+    {
+      path: '/net-worth',
+      name: 'net-worth',
+      component: () => import('@/views/NetWorthView.vue'),
+      meta: { title: 'มูลค่าสุทธิ', requiresAuth: true },
+    },
+    {
+      path: '/subscriptions',
+      name: 'subscriptions',
+      component: () => import('@/views/SubscriptionsView.vue'),
+      meta: { title: 'ค่าบริการรายเดือน', requiresAuth: true },
+    },
+    {
       path: '/workspaces',
       name: 'workspaces',
       component: () => import('@/views/WorkspacesView.vue'),

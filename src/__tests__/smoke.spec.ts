@@ -803,8 +803,13 @@ describe('สแกนสลิปหลายใบ', () => {
       ['โอนเงินสำเร็จ', '14 ก.ย. 69 10:30', 'จาก นาย สมชาย ใจดี', 'ไปยัง นาง สมศรี ใจดี', 'จำนวนเงิน 4,500.00 บาท', `เลขที่รายการ ${ref}`]
         .map((text) => ({ text, confidence: 95 }))
     let n = 0
+    const read = async () => ({ lines: slipText(`REF00000${++n}AB`), text: '', confidence: 95, rotation: 0, imageHash: `hash${n}`, enhanced: false })
     vi.doMock('../services/slipReader', () => ({
-      readSlipImage: async () => ({ lines: slipText(`REF00000${++n}AB`), text: '', confidence: 95, rotation: 0, imageHash: `hash${n}`, enhanced: false }),
+      readSlipImage: read,
+      // สแกนหลายใบใช้ตัวอ่านตัวเดียวทั้งชุด
+      readSlipBatch: async (files: Blob[], onEach: (i: number, r: Awaited<ReturnType<typeof read>>) => void) => {
+        for (let i = 0; i < files.length; i++) onEach(i, await read())
+      },
     }))
     vi.doMock('../services/imageCompress', () => ({
       compressImage: async (f: File) => ({ blob: new Blob(['x'], { type: 'image/jpeg' }), width: 1, height: 1, original: f.size }),

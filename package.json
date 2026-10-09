@@ -13,6 +13,7 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
+    "jsqr": "^1.4.0",
     "pdfjs-dist": "^6.4.299",
     "pinia": "^3.0.4",
     "tesseract.js": "^7.0.0",

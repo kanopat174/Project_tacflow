@@ -172,10 +172,10 @@ describe('6, 7. เลขอ้างอิง', () => {
     expect(parseSlip('Ref. No. 00012345 Copy', [], TODAY).reference.value).toBe('00012345')
     expect(parseSlip('เลขที่ รายการ : 2026-1007-0001', [], TODAY).reference.value).toBe('2026-1007-0001')
   })
-  it('ไม่มีเลขอ้างอิง หรืออ่านไม่ออก คืน null และต้องตรวจ', () => {
+  it('ไม่มีเลขอ้างอิง หรืออ่านไม่ออก คืน null แต่ไม่บล็อกการบันทึก (บางสลิปไม่มีเลขอ้างอิง)', () => {
     const none = parseSlip(NO_REFERENCE, [ME], TODAY)
     expect(none.reference).toMatchObject({ value: null, issue: expect.stringMatching(/ไม่พบเลขอ้างอิง/) })
-    expect(none.review).toContain('reference')
+    expect(none.review).not.toContain('reference')
     const bad = parseSlip(UNREADABLE_REFERENCE, [ME], TODAY)
     expect(bad.reference).toMatchObject({ value: null, issue: expect.stringMatching(/อ่านเลขไม่ชัด/) })
   })
@@ -231,7 +231,8 @@ describe('10. ข้อมูลผู้รับไม่ครบหรือ
     expect(r.sender.value).toBeNull()
     expect(r.unassignedNames).toEqual(['นาย สมชาย ใจดี'])
     expect(r.review).toContain('recipient')
-    expect(r.direction).toBeNull()
+    // ไม่รู้ฝั่ง: เดาเป็นรายจ่ายและบอกว่าเดา ผู้ใช้เปลี่ยนได้
+    expect(r).toMatchObject({ direction: 'expense', directionGuessed: true })
   })
   it('มีป้ายผู้รับแต่ไม่มีชื่อ', () => {
     const r = parseSlip('จาก นาย สมชาย ใจดี\nไปยัง\nจำนวนเงิน 10.00', [ME], TODAY)
@@ -241,12 +242,12 @@ describe('10. ข้อมูลผู้รับไม่ครบหรือ
 })
 
 describe('ทิศทางเงิน', () => {
-  it('เป็นผู้รับ = รายรับ, โอนเข้าบัญชีตัวเอง/ชื่อไม่ตรง/ไม่มีชื่อโปรไฟล์ = ให้ผู้ใช้เลือก', () => {
+  it('เป็นผู้รับ = รายรับ, โอนเข้าบัญชีตัวเอง = ให้ผู้ใช้เลือก, ชื่อไม่ตรง/ไม่มีชื่อโปรไฟล์ = เดาว่าจ่าย', () => {
     const incoming = 'จาก นาง สมศรี มีสุข\nไปยัง นาย สมชาย ใจดี\nจำนวนเงิน 10.00'
-    expect(parseSlip(incoming, [ME], TODAY).direction).toBe('income')
+    expect(parseSlip(incoming, [ME], TODAY)).toMatchObject({ direction: 'income', directionGuessed: false })
     expect(parseSlip('จาก นาย สมชาย ใจดี\nไปยัง นาย สมชาย ใจดี', [ME], TODAY).direction).toBeNull()
-    expect(parseSlip(incoming, ['มานี มีนา'], TODAY).direction).toBeNull()
-    expect(parseSlip(incoming, [], TODAY).direction).toBeNull()
+    expect(parseSlip(incoming, ['มานี มีนา'], TODAY)).toMatchObject({ direction: 'expense', directionGuessed: true })
+    expect(parseSlip(incoming, [], TODAY)).toMatchObject({ direction: 'expense', directionGuessed: true })
   })
   it('เทียบชื่อที่ปิดนามสกุลบางส่วน', () => {
     expect(nameMatches('นาย สมชาย ใ', ME)).toBe(true)

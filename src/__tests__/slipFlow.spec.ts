@@ -65,11 +65,11 @@ const PARTIAL = `โอนเงินสำเร็จ
 let wrapper: VueWrapper
 let workspaceId = ''
 
-async function scan(text: string, hash: string) {
+async function scan(text: string, hash: string, lastModified = Date.now()) {
   ocrResult.current = ocr(text, hash)
   const inputs = wrapper.findAll('input[type="file"]')
   const slipInput = inputs.find((i) => i.attributes('capture') === undefined)!
-  const file = new File(['fake-image'], 'slip.png', { type: 'image/png' })
+  const file = new File(['fake-image'], 'slip.png', { type: 'image/png', lastModified })
   Object.defineProperty(slipInput.element, 'files', { value: [file], configurable: true })
   await slipInput.trigger('change')
   await flushPromises()
@@ -107,24 +107,19 @@ afterAll(() => {
 })
 
 describe('สแกนสลิปจนบันทึกลงฐานข้อมูล', () => {
-  it('ไม่มีวันที่บนสลิป: ช่องวันที่ว่าง (ไม่ใช่วันนี้) และบันทึกไม่ได้จนกว่าจะกรอก', async () => {
-    await scan(PARTIAL, 'c')
-    expect(value('#q-date')).toBe('')
+  it('ไม่มีวันที่บนสลิป: ใช้วันที่ของไฟล์รูปแทน (ไม่ใช่วันนี้) และต้องยืนยันก่อนบันทึก', async () => {
+    await scan(PARTIAL, 'c', Date.parse('2026-10-01T03:00:00Z'))
+    expect(value('#q-date')).toBe('2026-10-01')
     expect(value('#s-ref')).toBe('')
     const review = wrapper.find('[data-test="slip-review"]').text()
-    expect(review).toContain('ไม่พบวันที่')
-    expect(review).toContain('ไม่พบเลขอ้างอิง')
+    expect(review).toContain('ใช้วันที่ของไฟล์รูป')
 
     const before = (await api.entries(workspaceId)).length
     await submit()
     expect((await api.entries(workspaceId)).length).toBe(before)
     const toasts = useToastStore().items
-    expect(toasts[toasts.length - 1]?.message).toMatch(/กรอกวันที่/)
+    expect(toasts[toasts.length - 1]?.message).toMatch(/ติ๊กยืนยัน/)
 
-    // กรอกวันที่แล้ว ยังต้องติ๊กยืนยันช่องที่ต้องตรวจก่อน
-    await wrapper.find('#q-date').setValue('2026-10-01')
-    await submit()
-    expect((await api.entries(workspaceId)).length).toBe(before)
     await wrapper.find('[data-test="review-confirm"]').setValue(true)
     await submit()
     const saved = (await api.entries(workspaceId)).find((e) => e.amount === 75)

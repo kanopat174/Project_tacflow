@@ -25,6 +25,14 @@ export const MEMBER_NAV: NavGroup[] = [
     ],
   },
   {
+    title: 'วางแผนการเงิน',
+    links: [
+      { label: 'มูลค่าสุทธิ', to: '/net-worth', icon: 'chart' },
+      { label: 'แผนปลดหนี้', to: '/debts', icon: 'scale' },
+      { label: 'ค่าบริการรายเดือน', to: '/subscriptions', icon: 'clock' },
+    ],
+  },
+  {
     title: 'ภาษี',
     links: [
       { label: 'ยื่นแบบภาษี', to: '/filing', icon: 'file', match: ['/status/'] },

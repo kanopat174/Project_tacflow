@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onBeforeUnmount, onMounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { defineAsyncComponent, onBeforeUnmount, onMounted, watch } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import SiteHeader from '@/components/SiteHeader.vue'
 import SiteFooter from '@/components/SiteFooter.vue'
 import SideNav from '@/components/SideNav.vue'
@@ -16,7 +16,7 @@ import AppLock from '@/components/AppLock.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGameStore } from '@/stores/game'
 import { useLockStore } from '@/stores/lock'
-import { useUiStore } from '@/stores/ui'
+import { QUICK_INTENTS, useUiStore, type QuickIntent } from '@/stores/ui'
 
 // แถบค้นหา Ctrl+K โหลดแยกไฟล์ตอนเปิดครั้งแรก ไม่เพิ่มขนาดหน้าแรกของเว็บ
 const CommandPalette = defineAsyncComponent(() => import('@/components/CommandPalette.vue'))
@@ -39,6 +39,19 @@ function onGlobalKey(event: KeyboardEvent) {
   }
 }
 onMounted(() => document.addEventListener('keydown', onGlobalKey))
+
+// ทางลัดบนหน้าจอโฮม (กดค้างไอคอนแอป) เปิดมาเป็น ?quick=expense|income|slip|voice — เปิดบันทึกด่วนแล้วลบออกจาก URL
+const route = useRoute()
+const router = useRouter()
+watch(
+  () => [route.query.quick, auth.isLoggedIn] as const,
+  ([quick, loggedIn]) => {
+    if (!loggedIn || typeof quick !== 'string' || !QUICK_INTENTS.includes(quick as QuickIntent)) return
+    ui.openQuickAdd('', null, quick as QuickIntent)
+    const { quick: _drop, ...rest } = route.query
+    void router.replace({ query: rest })
+  },
+)
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onGlobalKey)
   lock.stop()

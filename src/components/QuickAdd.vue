@@ -30,9 +30,11 @@ import {
 import type { LoanRole } from '@/services/ledgerEngine'
 import { guessCategory } from '@/services/ledgerCsv'
 import type { RecipientType, SlipMeta } from '@/services/ledgerEngine'
-import { parseQuickEntry } from '@/services/quickParse'
+import { parseEntries } from '@/services/multiEntry'
+import { learnSelfFromSlip, loadSelf } from '@/services/selfIdentity'
 import {
   bangkokToday,
+  fileDateOf,
   findSlipDuplicates,
   isValidReference,
   parseSlip,
@@ -195,9 +197,44 @@ function resetLoan() {
 
 /* ---------- พิมพ์เป็นประโยค ---------- */
 
-const parsed = computed(() =>
-  workspace.value && sentence.value.trim() ? parseQuickEntry(sentence.value, workspace.value.mode, localToday()) : null,
+/** ทุกรายการที่อ่านได้จากข้อความ — ประโยคหลายรายการ หรือข้อความแจ้งเตือนธนาคารที่วางมา */
+const entries = computed(() =>
+  workspace.value && sentence.value.trim() ? parseEntries(sentence.value, workspace.value.mode, localToday()) : [],
 )
+const parsed = computed(() => (entries.value.length === 1 ? entries.value[0]! : null))
+/** หลายรายการ — แสดงเป็นรายการให้ตรวจ แล้วบันทึกพร้อมกัน */
+const multi = computed(() => (entries.value.length > 1 ? entries.value : []))
+
+/** วางข้อความหลายบรรทัด (เช่นแจ้งเตือนธนาคารหลายอัน) — ช่องพิมพ์บรรทัดเดียวจะรวมบรรทัดจนแยกไม่ได้ จึงคั่นด้วย | */
+function onPaste(event: ClipboardEvent) {
+  const text = event.clipboardData?.getData('text') ?? ''
+  if (!/\r?\n/.test(text.trim())) return
+  event.preventDefault()
+  sentence.value = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' | ')
+}
+
+/* ---------- หารบิล ---------- */
+
+/** ชื่อเพื่อนที่หารด้วย คั่นด้วยจุลภาคหรือเว้นวรรค */
+const splitWith = ref('')
+const splitNames = computed(() => [
+  ...new Set(
+    splitWith.value
+      .split(/[,\s]+|และ/)
+      .map((n) => n.trim())
+      .filter(Boolean),
+  ),
+])
+/** ส่วนของแต่ละคน — เศษสตางค์ตกเป็นของเรา */
+const splitShare = computed(() =>
+  splitNames.value.length && form.amount > 0 ? Math.floor((form.amount / (splitNames.value.length + 1)) * 100) / 100 : 0,
+)
+const splitActive = computed(() => form.type === 'expense' && splitShare.value > 0)
+const myShare = computed(() => Math.round((form.amount - splitShare.value * splitNames.value.length) * 100) / 100)
 
 // พิมพ์แล้วเติมฟอร์มให้ทันที ผู้ใช้ยังแก้ช่องไหนก็ได้ก่อนกดบันทึก
 watch(parsed, (p) => {
@@ -231,7 +268,7 @@ const speech = useSpeechInput(
     // ล้างก่อน พูดประโยคเดิมซ้ำแล้วฟอร์มจะเติมใหม่ แม้ผู้ใช้แก้ช่องด้านล่างไปแล้ว
     sentence.value = ''
     sentence.value = normaliseSpokenEntry(text)
-    if (!parsed.value) toast.error(`ได้ยินว่า "${text}" แต่ไม่เจอจำนวนเงิน พูดยอดเงินด้วย เช่น "หกสิบบาท"`)
+    if (!entries.value.length) toast.error(`ได้ยินว่า "${text}" แต่ไม่เจอจำนวนเงิน พูดยอดเงินด้วย เช่น "หกสิบบาท"`)
   },
   (message) => toast.error(message),
 )
@@ -446,6 +483,15 @@ function fieldOf(key: SlipFieldKey) {
 function chooseType(type: EntryType) {
   form.type = type
   typeConfirmed.value = true
+  // ผู้ใช้บอกเองว่าสลิปนี้เข้าหรือออก — จำชื่อและบัญชีฝั่งที่เป็นผู้ใช้ ครั้งหน้าไม่ต้องเดา
+  if (slip.value && auth.user) {
+    learnSelfFromSlip(auth.user.id, type, {
+      sender: slipEdit.sender.trim() || null,
+      recipient: slipEdit.recipient.trim() || null,
+      senderAccount: slip.value.senderAccount,
+      recipientAccount: slip.value.recipientAccount,
+    })
+  }
   // ทิศทางเงินกำหนดว่าคู่โอนคือผู้รับหรือผู้โอน — รอรายละเอียดอัตโนมัติเปลี่ยนตามก่อน แล้วค่อยเติมจากความจำ
   void nextTick(() => {
     applyMemory(slipCounterparty(), true)
@@ -499,7 +545,12 @@ async function pickSlip(files: FileList | File[] | null) {
     slipImageHash.value = ocr.imageHash
     slipOcr.value = { text: ocr.text, confidence: ocr.confidence, rotation: ocr.rotation, enhanced: ocr.enhanced }
     // "วันนี้" ใช้กันวันที่ในอนาคตเท่านั้น ไม่ใช้แทนวันที่ที่หาไม่เจอ
-    const result = parseSlip(ocr.lines, [auth.user?.fullName ?? ''], bangkokToday())
+    const self = auth.user ? loadSelf(auth.user.id) : { names: [], accounts: [] }
+    const result = parseSlip(ocr.lines, [auth.user?.fullName ?? '', ...self.names], bangkokToday(), {
+      qr: ocr.qr,
+      fileDate: fileDateOf(file),
+      ownAccounts: self.accounts,
+    })
     slip.value = result
     sentence.value = ''
     Object.assign(slipEdit, {
@@ -594,6 +645,7 @@ async function prepare() {
   form.date = localToday()
   sentence.value = ui.quickAddText
   ui.quickAddText = ''
+  splitWith.value = ''
   receiptFile.value = null
   clearSlip()
   if (!ledger.workspaces.length) {
@@ -623,6 +675,19 @@ async function prepare() {
     else await pickSlip([shared])
     return
   }
+  // ทางลัดบนหน้าจอโฮม
+  const intent = ui.quickAddIntent
+  ui.quickAddIntent = ''
+  if (intent === 'income' || intent === 'expense') chooseType(intent)
+  if (intent === 'voice' && speech.supported) {
+    speech.start()
+    return
+  }
+  if (intent === 'slip') {
+    // บางเบราว์เซอร์ไม่ยอมเปิดตัวเลือกไฟล์เองถ้าผู้ใช้ไม่ได้แตะ — ถ้าไม่เปิด ปุ่มสแกนสลิปอยู่ตรงหน้าแล้ว
+    slipInput.value?.click()
+    return
+  }
   sentenceInput.value?.focus()
 }
 
@@ -630,7 +695,65 @@ function close() {
   open.value = false
 }
 
+/** บันทึกหลายรายการจากข้อความเดียว — หมวดใช้ความจำของผู้ใช้ก่อน แล้วค่อยตัวเดาจากคำ */
+async function saveMany() {
+  if (!workspace.value || !auth.user) return
+  const ws = workspace.value
+  const user = auth.user
+  const list = [...multi.value]
+  saving.value = true
+  let count = 0
+  try {
+    const memory = loadMemory(user.id)
+    for (const item of list) {
+      const valid = categoriesOf(ws.mode, item.type)
+      const hit = recallEntry(memory, { source: item.note, type: item.type, mode: ws.mode, amount: item.amount })
+      const categoryKey =
+        [hit?.categoryKey, item.categoryKey].find((k) => k && valid.some((c) => c.key === k)) ?? valid[0]?.key ?? ''
+      const created = await api.addEntry(ws.id, {
+        date: item.date,
+        type: item.type,
+        categoryKey,
+        amount: item.amount,
+        note: item.note,
+        ...(item.loan?.party ? { loan: item.loan } : {}),
+      })
+      ledger.receiveEntry(created)
+      rememberMany(user.id, [{ type: item.type, mode: ws.mode, amount: item.amount, categoryKey, note: item.note, source: item.note }], localToday())
+      count++
+    }
+    game.scheduleRefresh()
+    writeLocal(LAST_KEY, ws.id)
+    toast.success(`บันทึก ${count} รายการลง "${ws.name}" แล้ว`)
+    fx.entrySaved(list[0]!.type, list.reduce((s, e) => s + e.amount, 0))
+    sentence.value = ''
+    close()
+  } catch (error) {
+    toast.error(
+      `บันทึกได้ ${count} จาก ${list.length} รายการ — ${error instanceof ApiError ? error.message : 'เกิดข้อผิดพลาด'} ตรวจในสมุดก่อนบันทึกซ้ำ`,
+    )
+  } finally {
+    saving.value = false
+  }
+}
+
+/** หารบิล: ส่วนของเพื่อนแต่ละคนบันทึกเป็น "ให้ยืม" ระบบเงินยืมจะติดตามให้ว่าใครยังไม่คืน */
+async function saveSplitShares(workspaceId: string, categoryKey: string) {
+  for (const friend of splitNames.value) {
+    const created = await api.addEntry(workspaceId, {
+      date: form.date,
+      type: 'expense',
+      categoryKey,
+      amount: splitShare.value,
+      note: `${friend} ติดค่า${form.note ? ` ${form.note}` : 'บิล'} (หาร ${splitNames.value.length + 1} คน)`,
+      loan: { role: 'lend', party: friend },
+    })
+    ledger.receiveEntry(created)
+  }
+}
+
 async function save() {
+  if (multi.value.length) return saveMany()
   if (!workspace.value) return
   if (form.amount <= 0) {
     toast.error('จำนวนเงินต้องมากกว่า 0')
@@ -644,17 +767,29 @@ async function save() {
   }
   saving.value = true
   try {
+    // หารบิล: รายการหลักเป็นส่วนของเราเอง ส่วนของเพื่อนแยกเป็นรายการให้ยืม (ยอดรวมทุกรายการ = ยอดที่จ่ายจริง)
+    const split = splitActive.value
     const created = await api.addEntry(workspace.value.id, {
       date: form.date,
       type: form.type,
       categoryKey: form.categoryKey,
-      amount: form.amount,
-      note: form.note,
+      amount: split ? myShare.value : form.amount,
+      note: split ? `${form.note || 'บิล'} (ส่วนของฉัน จาก ${formatBaht(form.amount)} หาร ${splitNames.value.length + 1} คน)` : form.note,
       ...(slipMeta.value ? { slip: slipMeta.value } : {}),
-      ...(loanRole.value && loanParty.value.trim() ? { loan: { role: loanRole.value, party: loanParty.value.trim() } } : {}),
+      ...(!split && loanRole.value && loanParty.value.trim() ? { loan: { role: loanRole.value, party: loanParty.value.trim() } } : {}),
     })
     ledger.receiveEntry(created)
+    if (split) await saveSplitShares(workspace.value.id, form.categoryKey)
     rememberSaved(workspace.value.mode)
+    // ระบบรู้ทิศทางจากชื่อคุณแน่นอนแล้ว — จำเลขบัญชีฝั่งคุณไว้ด้วย สลิปภาษาอังกฤษครั้งหน้าจะรู้จาก
+    if (slip.value && auth.user && !slip.value.directionGuessed && slip.value.direction === form.type) {
+      learnSelfFromSlip(auth.user.id, form.type, {
+        sender: null,
+        recipient: null,
+        senderAccount: slip.value.senderAccount,
+        recipientAccount: slip.value.recipientAccount,
+      })
+    }
     const fundRecorded = recordFundPurchase()
     const attached = await attachReceipt(workspace.value.id, created.id, form.date, form.type)
     const attachedLabel = evidenceKind.value === 'slip' ? 'สลิป' : 'ใบเสร็จ'
@@ -667,12 +802,14 @@ async function save() {
     toast.success(
       `บันทึก${form.type === 'income' ? 'รายรับ' : 'รายจ่าย'} ${formatBaht(form.amount)} ลง "${workspace.value.name}" แล้ว` +
         (attached ? ` พร้อมรูป${attachedLabel}` : '') +
-        (fundRecorded ? ' และจดลงกองทุนลดหย่อนของฉันแล้ว' : ''),
+        (fundRecorded ? ' และจดลงกองทุนลดหย่อนของฉันแล้ว' : '') +
+        (split ? ` · ${splitNames.value.join(', ')} ติดคุณคนละ ${formatBaht(splitShare.value)}` : ''),
     )
     fx.entrySaved(form.type, form.amount)
     form.amount = 0
     form.note = ''
     sentence.value = ''
+    splitWith.value = ''
     close()
   } catch (error) {
     toast.error(error instanceof ApiError ? error.message : 'บันทึกไม่สำเร็จ')
@@ -720,7 +857,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                   v-model="sentence"
                   type="text"
                   autocomplete="off"
-                  placeholder="เช่น กาแฟ 65 · ค่าไฟ 1,200 เมื่อวาน · +30000 เงินเดือน"
+                  placeholder="เช่น กาแฟ 65 · ข้าว 60 ค่ารถ 30 · แม่ให้ 500 · วางแจ้งเตือนธนาคาร"
+                  @paste="onPaste"
                 />
                 <button
                   v-if="speech.supported"
@@ -737,6 +875,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </div>
               <p class="hint" aria-live="polite">
                 <template v-if="speech.listening.value">กำลังฟัง... {{ speech.interim.value || 'พูดเช่น "ข้าวมันไก่ หกสิบบาท"' }}</template>
+                <template v-else-if="multi.length">อ่านได้ {{ multi.length }} รายการ — ตรวจด้านล่างแล้วกดบันทึกทีเดียว</template>
                 <template v-else-if="parsed && workspace">
                   {{ parsed.type === 'income' ? 'รายรับ' : 'รายจ่าย' }} {{ formatBaht(parsed.amount) }} ·
                   {{ categoryLabel(workspace.mode, form.categoryKey) }} · {{ thaiDate(parsed.date) }}
@@ -747,6 +886,18 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </p>
             </div>
 
+            <ul v-if="multi.length && workspace" class="multi-list mb-2" data-test="multi-list">
+              <li v-for="(item, i) in multi" :key="i">
+                <span class="multi-type" :class="item.type">{{ item.type === 'income' ? 'รับ' : 'จ่าย' }}</span>
+                <span class="multi-note">
+                  {{ item.note || categoryLabel(workspace.mode, item.categoryKey) }}
+                  <small class="muted">· {{ categoryLabel(workspace.mode, item.categoryKey) }} · {{ thaiDate(item.date) }}</small>
+                </span>
+                <strong>{{ formatBaht(item.amount) }}</strong>
+              </li>
+            </ul>
+
+            <template v-if="!multi.length">
             <div class="row mb-2" style="gap: 8px; flex-wrap: wrap; align-items: center">
               <label class="btn btn-ghost btn-sm" :class="{ disabled: reading }">
                 <AppIcon name="camera" :size="15" />
@@ -882,8 +1033,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </ul>
 
               <p class="slip-direction">
-                <template v-if="typeConfirmed && slip.direction">
+                <template v-if="typeConfirmed && slip.direction && form.type === slip.direction">
                   เป็น{{ slip.direction === 'income' ? 'รายรับ' : 'รายจ่าย' }} เพราะ{{ slip.directionReason }}
+                  <template v-if="slip.directionGuessed"> — ถ้าผิด กดเลือกประเภทด้านล่าง ระบบจะจำไว้ครั้งหน้า</template>
                 </template>
                 <template v-else-if="typeConfirmed">เลือกเป็น{{ form.type === 'income' ? 'รายรับ' : 'รายจ่าย' }}แล้ว</template>
                 <template v-else>{{ slip.directionReason }} — กดเลือกรายรับหรือรายจ่ายด้านล่างก่อนบันทึก</template>
@@ -964,9 +1116,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
                 <label for="q-note">รายละเอียด</label>
                 <input id="q-note" v-model="form.note" type="text" placeholder="ไม่บังคับ" />
               </div>
+              <div v-if="form.type === 'expense'" class="field">
+                <label for="q-split">หารบิลกับ</label>
+                <input id="q-split" v-model="splitWith" type="text" placeholder="ไม่บังคับ เช่น เอ, บี, ซี" data-test="split-with" />
+              </div>
               <div class="field">
                 <label for="q-loan">เงินยืม</label>
-                <select id="q-loan" v-model="loanRole" data-test="loan-role">
+                <select id="q-loan" v-model="loanRole" data-test="loan-role" :disabled="splitActive">
                   <option value="">ไม่ใช่</option>
                   <option v-for="role in LOAN_ROLES_FOR[form.type]" :key="role" :value="role">
                     {{ LOAN_ROLE_LABELS[role] }}
@@ -979,6 +1135,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               </div>
             </div>
 
+            <p v-if="splitActive" class="small muted mb-2" data-test="split-hint">
+              🍕 จ่าย {{ formatBaht(form.amount) }} หาร {{ splitNames.length + 1 }} คน — ส่วนของคุณ {{ formatBaht(myShare) }} ·
+              {{ splitNames.join(', ') }} ติดคุณคนละ {{ formatBaht(splitShare) }} (บันทึกเป็น "ให้ยืม" ติดตามได้ว่าใครยังไม่คืน)
+            </p>
             <p v-if="loanSuggested" class="small muted mb-2" data-test="loan-hint">
               🤝 {{ loanSuggested.tag.party }}
               {{ loanSuggested.tag.role === 'collect' ? 'ติดเงินคุณอยู่' : 'คุณติดเงินอยู่' }}
@@ -997,8 +1157,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
               {{ deductionReceipt.categoryKey === 'savingInvest' ? 'และจดลงหน้ากองทุนลดหย่อนเพื่อติดตามวันที่ขายได้' : '' }}
             </p>
 
+            </template>
+
             <button class="btn btn-primary btn-block" type="submit" :disabled="saving">
-              {{ saving ? 'กำลังบันทึก...' : 'บันทึก' }}
+              {{ saving ? 'กำลังบันทึก...' : multi.length ? `บันทึก ${multi.length} รายการ` : 'บันทึก' }}
             </button>
           </form>
         </section>
@@ -1006,3 +1168,38 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
     </Transition>
   </div>
 </template>
+
+<style scoped>
+.multi-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.multi-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.multi-type {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--bad);
+}
+.multi-type.income {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+.multi-note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+</style>

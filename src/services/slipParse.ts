@@ -12,6 +12,7 @@
 
 import type { EntryType } from '@/data/workspaceModes'
 import type { LedgerEntry, RecipientType, SlipMeta } from './ledgerEngine'
+import { parseSlipQr } from './slipQr'
 
 /** บรรทัดจาก OCR พร้อมความมั่นใจ 0–100 ของตัวอ่าน */
 export interface OcrLine {
@@ -45,9 +46,14 @@ export interface SlipExtraction {
   reference: SlipField<string>
   /** ชื่อที่พบแต่ระบุไม่ได้ว่าเป็นผู้โอนหรือผู้รับ */
   unassignedNames: string[]
-  /** null = ตัดสินไม่ได้ ผู้ใช้ต้องเลือกเอง */
+  /** เลขบัญชีส่วนที่มองเห็นบนสลิป เช่น "1234" จาก xxx-x-x1234-x */
+  senderAccount: string | null
+  recipientAccount: string | null
+  /** null = ตัดสินไม่ได้ (เช่นโอนระหว่างบัญชีตัวเอง) ผู้ใช้ต้องเลือกเอง */
   direction: EntryType | null
   directionReason: string
+  /** ทิศทางมาจากการเดา ไม่ใช่จากชื่อหรือบัญชีของผู้ใช้ — แสดงให้ผู้ใช้เปลี่ยนได้ */
+  directionGuessed: boolean
   /** ช่องที่ต้องให้ผู้ใช้ตรวจก่อนบันทึก */
   review: SlipFieldKey[]
 }
@@ -78,15 +84,31 @@ function ocrFactor(conf: number): number {
 // eslint-disable-next-line no-control-regex
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f​-‏‪-‮⁠-⁤﻿]/g
 
+/**
+ * OCR มักอ่านเลข 0 เป็นตัว O และเลข 1 เป็น l/I/| ในกลุ่มที่เป็นตัวเลข ("2O26" "1l:30")
+ * แก้เฉพาะกลุ่มที่มีเลขอย่างน้อยสองตัวและไม่มีตัวอักษรอื่น — ชื่อและเลขอ้างอิงที่มีตัวอักษรไม่ถูกแตะ
+ */
+function fixDigitTokens(text: string): string {
+  return text
+    .split(' ')
+    .map((token) =>
+      (token.match(/\d/g) ?? []).length >= 2 && /^[\dOoIl|.,:/-]+$/.test(token)
+        ? token.replace(/[Oo]/g, '0').replace(/[Il|]/g, '1')
+        : token,
+    )
+    .join(' ')
+}
+
 function normaliseLine(raw: string): string {
-  return raw
-    .replace(INVISIBLE, '')
-    .replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50))
-    .replace(/ํา/g, 'ำ') // "ํา" ที่ OCR แยกเป็นสองตัว → "ำ"
-    .replace(/[：﹕]/g, ':')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 300)
+  return fixDigitTokens(
+    raw
+      .replace(INVISIBLE, '')
+      .replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50))
+      .replace(/ํา/g, 'ำ') // "ํา" ที่ OCR แยกเป็นสองตัว → "ำ"
+      .replace(/[：﹕]/g, ':')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  ).slice(0, 300)
 }
 
 function toLines(input: string | OcrLine[]): Line[] {
@@ -99,16 +121,30 @@ function toLines(input: string | OcrLine[]): Line[] {
 
 /* ---------- ป้ายข้อความ ---------- */
 
+/** วรรณยุกต์และการันต์ที่ OCR ตกหล่นบ่อย ("เลขทีรายการ") และสระที่อ่านสลับกัน */
+const THAI_LOOSE: Record<string, string> = {
+  '่': '่?',
+  '้': '้?',
+  '๊': '๊?',
+  '๋': '๋?',
+  '์': '์?',
+  'ิ': '[ิี]',
+  'ี': '[ีิ]',
+  'ำ': '(?:ำ|ํา|า)',
+}
+
 /**
- * สร้าง regex ที่ทนช่องว่างที่ OCR แทรกระหว่างตัวอักษร และจุดที่หายไป
- * เช่น "เลขที่รายการ" จับ "เลขที่ รายการ" ได้ "ref. no." จับ "Ref No" ได้
+ * สร้าง regex ที่ทนช่องว่างที่ OCR แทรกระหว่างตัวอักษร จุดที่หายไป และวรรณยุกต์ที่ตกหล่น
+ * เช่น "เลขที่รายการ" จับ "เลขที่ รายการ" และ "เลขทีรายการ" ได้ "ref. no." จับ "Ref No" ได้
  */
 function loose(phrases: string[]): string {
   return [...phrases]
     .sort((a, b) => b.length - a.length)
     .map((p) =>
       [...p]
-        .map((c) => (c === ' ' ? '\\s*' : c === '.' ? '\\.?' : c.replace(/[\\^$*+?()[\]{}|/-]/g, '\\$&')))
+        .map((c) =>
+          c === ' ' ? '\\s*' : c === '.' ? '\\.?' : (THAI_LOOSE[c] ?? c.replace(/[\\^$*+?()[\]{}|/-]/g, '\\$&')),
+        )
         .join('\\s?'),
     )
     .join('|')
@@ -148,6 +184,12 @@ const FEE_LABEL = new RegExp(loose(['ค่าธรรมเนียม', 'ย
 const REFERENCE_LABEL = new RegExp(
   `(?:^|\\s)(?:${loose([
     'เลขที่รายการ',
+    'เลขที่ทำรายการ',
+    'เลขที่อ้างอิงรายการ',
+    'รหัสการทำรายการ',
+    'รหัสธุรกรรม',
+    'หมายเลขธุรกรรม',
+    'เลขธุรกรรม',
     'รหัสอ้างอิง',
     'เลขที่อ้างอิง',
     'หมายเลขอ้างอิง',
@@ -156,7 +198,11 @@ const REFERENCE_LABEL = new RegExp(
     'หมายเลขรายการ',
     'เลขที่ธุรกรรม',
     'transaction id',
+    'transaction ref. no.',
     'transaction no.',
+    'trans. ref.',
+    'txn ref.',
+    'ref. code',
     'transaction ref.',
     'transaction reference',
     'transaction number',
@@ -187,22 +233,33 @@ const COMPANY_END = /(?:จำกัด|\(?มหาชน\)?|ltd\.?|limited|inc
 const CONTINUATION_START = /^(?:จำกัด|\(?มหาชน\)?|co\.?|ltd|limited|company|corporation|public|inc|plc|\()/i
 
 const BANKS: [RegExp, string][] = [
+  // LINE BK ให้บริการโดยกสิกรไทย แต่สลิปแสดงชื่อ LINE BK — ต้องตรวจก่อนกสิกร
+  [/line\s*bk|ไลน์\s*บีเค/i, 'LINE BK'],
   [/กสิกร|k\s?plus|kbank|kasikorn|make\s?by/i, 'กสิกรไทย'],
   [/ไทยพาณิชย์|\bscb\b|siam\s*commercial/i, 'ไทยพาณิชย์'],
   [/ธนาคารกรุงเทพ|ธ\.\s?กรุงเทพ|\bbbl\b|bangkok\s*bank|bualuang/i, 'กรุงเทพ'],
+  [/เป๋าตัง|paotang/i, 'เป๋าตัง (กรุงไทย)'],
   [/กรุงไทย|\bktb\b|krungthai|krung\s*thai/i, 'กรุงไทย'],
-  [/กรุงศรี|\bbay\b|krungsri/i, 'กรุงศรีอยุธยา'],
+  [/กรุงศรี|\bbay\b|krungsri|\bkma\b/i, 'กรุงศรีอยุธยา'],
   [/ทหารไทยธนชาต|\bttb\b|tmbthanachart/i, 'ทีทีบี'],
   [/ออมสิน|\bgsb\b|mymo/i, 'ออมสิน'],
   // ต้องมีจุดครบ ไม่งั้นไปชน "ธ.กสิกรไทย"
-  [/ธ\.ก\.ส\.|\bbaac\b/i, 'ธ.ก.ส.'],
-  [/ยูโอบี|\buob\b/i, 'ยูโอบี'],
+  [/ธ\.ก\.ส\.|\bbaac\b|a-?mobile/i, 'ธ.ก.ส.'],
+  [/ยูโอบี|\buob\b|\btmrw\b/i, 'ยูโอบี'],
   [/ซีไอเอ็มบี|\bcimb\b/i, 'ซีไอเอ็มบี ไทย'],
-  [/เกียรตินาคิน|\bkkp\b/i, 'เกียรตินาคินภัทร'],
+  [/เกียรตินาคิน|\bkkp\b|kiatnakin/i, 'เกียรตินาคินภัทร'],
   [/แลนด์\s*แอนด์\s*เฮ้าส์|\blh\s*bank\b/i, 'แลนด์ แอนด์ เฮ้าส์'],
   [/ทิสโก้|\btisco\b/i, 'ทิสโก้'],
   [/อาคารสงเคราะห์|\bghb\b/i, 'อาคารสงเคราะห์'],
-  [/พร้อมเพย์|promptpay/i, 'พร้อมเพย์'],
+  [/ไทยเครดิต|thai\s*credit/i, 'ไทยเครดิต'],
+  [/ไอซีบีซี|\bicbc\b/i, 'ไอซีบีซี (ไทย)'],
+  [/ธนาคารอิสลาม|\bibank\b|islamic\s*bank/i, 'อิสลามแห่งประเทศไทย'],
+  [/สแตนดาร์ด\s*ชาร์เตอร์ด|standard\s*chartered/i, 'สแตนดาร์ดชาร์เตอร์ด'],
+  [/แห่งประเทศจีน|bank\s*of\s*china/i, 'แห่งประเทศจีน'],
+  [/ทรูมันนี่|true\s*money/i, 'TrueMoney'],
+  [/ช้อปปี้\s*เพย์|shopee\s*pay/i, 'ShopeePay'],
+  [/\bdime\b/i, 'Dime'],
+  [/พร้อมเพย์|promptpay|prompt\s*pay/i, 'พร้อมเพย์'],
 ]
 const BANK_WORDS = /ธนาคาร|bank|ธ\.|ไทย|thai|จำกัด|มหาชน|public|company|limited|pcl|mobile|banking|app|next|easy|plus|make|by/gi
 
@@ -297,7 +354,52 @@ const MONTH_KEYS: Record<string, number> = {}
   ['ธค', 'ธันวาคม', 'dec', 'december'],
 ].forEach((names, i) => names.forEach((n) => (MONTH_KEYS[n] = i + 1)))
 
-const DATE_WORD = /(?<!\d)(\d{1,2})\s*([ก-๙a-z][ก-๙a-z.\s]{0,14}?)\s*\.?\s*(\d{4}|\d{2})(?!\d)/gi
+/** ปีสองหลักที่ OCR อ่านติดกับเวลา ("ต.ค.6914:32") ลองก่อนปีสี่หลัก */
+const DATE_WORD =
+  /(?<!\d)(\d{1,2})\s*([ก-๙a-z][ก-๙a-z.\s]{0,14}?)\s*\.?\s*,?\s*(\d{2}(?=\d{1,2}\s?[:.]\s?\d{2})|\d{4}|\d{2}(?!\s?[:.]\s?\d{2}))(?!\d{3})/gi
+/** แบบอังกฤษเดือนขึ้นก่อน: "Oct 9, 2026" */
+const DATE_US = /(?<![a-z])([a-z]{3,9})\.?\s*(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?!\d)/gi
+/** สลิปบางแอปไม่พิมพ์ปี: "9 ต.ค. 14:32" — ใช้เฉพาะเมื่อไม่พบวันที่แบบอื่น */
+const DATE_NO_YEAR = /(?<!\d)(\d{1,2})\s*([ก-๙][ก-๙.]{1,12}|[a-z]{3,9})\.?(?=\s*[,-]?\s*(?:\d{1,2}\s?[:.]\s?\d{2}|$))/gi
+
+function editDistance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0]!
+    row[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const temp = row[j]!
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1))
+      prev = temp
+    }
+  }
+  return row[b.length]!
+}
+
+/**
+ * ชื่อเดือนที่ OCR อ่านเพี้ยนไปหนึ่งตัว ("ศ.ค." แทน "ต.ค.") — รับเฉพาะเมื่อใกล้เดือนเดียวชัดเจน
+ * ถ้าใกล้หลายเดือนเท่ากัน ("นค" ใกล้ทั้ง มค กค สค) ไม่เดา
+ */
+function monthOf(key: string): number | null {
+  const exact = MONTH_KEYS[key]
+  if (exact) return exact
+  if (key.length < 2) return null
+  const limit = key.length <= 4 ? 1 : 2
+  let best: number | null = null
+  let bestDistance = Infinity
+  let tie = false
+  for (const [name, month] of Object.entries(MONTH_KEYS)) {
+    if (/[ก-๙]/.test(name) !== /[ก-๙]/.test(key)) continue
+    const d = editDistance(key, name)
+    if (d > limit) continue
+    if (d < bestDistance) {
+      best = month
+      bestDistance = d
+      tie = false
+    } else if (d === bestDistance && month !== best) tie = true
+  }
+  return tie ? null : best
+}
 const DATE_NUMERIC = /(?<![\d/.:-])(\d{1,2})\s?([/.-])\s?(\d{1,2})\s?\2\s?(\d{4}|\d{2})(?![\d/-]|\.\d)/g
 const DATE_ISO = /(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)/g
 const TIME = /(?<![\d.,:])([01]?\d|2[0-3])\s?:\s?([0-5]\d)(?:\s?:\s?[0-5]\d)?(?!\d)\s*(am|pm|น\.?)?|(?<![\d.,])([01]?\d|2[0-3])\.([0-5]\d)\s*น/i
@@ -334,6 +436,8 @@ function resolveDate(
   const raw = Number(yearText)
   if (yearText.length === 4) {
     const year = raw >= 2400 ? raw - 543 : raw
+    // ปีที่เป็นไปไม่ได้ (OCR อ่านเลขอื่นมาเป็นปี) ไม่ใช่วันที่
+    if (year < 2000 || year > Number(today.slice(0, 4)) + 1) return null
     const date = validDate(year, month, day)
     return date ? { date, ambiguous: false } : null
   }
@@ -377,8 +481,12 @@ function dateCandidates(lines: Line[], today: string): { found: DateCandidate[];
     }
     for (const m of line.text.matchAll(DATE_WORD)) {
       const key = m[2]!.toLowerCase().replace(/[.\s]/g, '')
-      const month = MONTH_KEYS[key]
+      const month = monthOf(key)
       if (month) push(resolveDate(m[3]!, month, Number(m[1]), /[ก-๙]/.test(key) ? 'thai' : 'english', today), m.index! + m[0].length)
+    }
+    for (const m of line.text.matchAll(DATE_US)) {
+      const month = MONTH_KEYS[m[1]!.toLowerCase()]
+      if (month) push(resolveDate(m[3]!, month, Number(m[2]), 'english', today), m.index! + m[0].length)
     }
     for (const m of line.text.matchAll(DATE_NUMERIC)) {
       push(resolveDate(m[4]!, Number(m[3]), Number(m[1]), 'numeric', today), m.index! + m[0].length)
@@ -419,9 +527,33 @@ function dateCandidatesFree(text: string): boolean {
   return !new RegExp(DATE_WORD.source, 'i').test(text) && !new RegExp(DATE_NUMERIC.source).test(text)
 }
 
+/** วันที่ที่ไม่มีปี ("9 ต.ค. 14:32") — ใช้ปีนี้ ถ้าได้วันในอนาคตแปลว่าเป็นปีที่แล้ว */
+function dateWithoutYear(lines: Line[], today: string): { date: SlipField<string>; time: SlipField<string> } | null {
+  const year = Number(today.slice(0, 4))
+  for (const line of lines) {
+    if (OTHER_DATE_LABEL.test(line.text)) continue
+    for (const m of line.text.matchAll(DATE_NO_YEAR)) {
+      const month = MONTH_KEYS[m[2]!.toLowerCase().replace(/[.\s]/g, '')]
+      if (!month) continue
+      let date = validDate(year, month, Number(m[1]))
+      if (date && date > today) date = validDate(year - 1, month, Number(m[1]))
+      if (!date) continue
+      const time = parseTime(line.text.slice(m.index! + m[0].length))
+      const confidence = 0.7 * ocrFactor(line.conf)
+      return {
+        date: field(date, confidence, line.text, 'สลิปไม่ได้พิมพ์ปี ใช้ปีปัจจุบัน ตรวจอีกครั้ง'),
+        time: time ? field(time, confidence, line.text) : field<string>(null, 0, null),
+      }
+    }
+  }
+  return null
+}
+
 function findDateTime(lines: Line[], today: string): { date: SlipField<string>; time: SlipField<string> } {
   const { found, future } = dateCandidates(lines, today)
   if (!found.length) {
+    const noYear = dateWithoutYear(lines, today)
+    if (noYear) return noYear
     const issue = future.length ? 'วันที่บนสลิปอยู่หลังวันนี้ — อาจอ่านผิด กรอกวันที่เอง' : 'ไม่พบวันที่ทำรายการบนสลิป กรอกวันที่เอง'
     return { date: field<string>(null, 0, null, issue), time: field<string>(null, 0, null) }
   }
@@ -501,9 +633,17 @@ interface Party {
   source: string
   conf: number
   bank: string | null
+  /** เลขบัญชีส่วนที่มองเห็น (เลขชุดท้าย) */
+  account: string | null
   /** มีธนาคารหรือเลขบัญชีตามหลังชื่อ — ลักษณะของบล็อกคู่โอน */
   structured: boolean
   end: number
+}
+
+/** ตัวเลขที่ไม่ถูกปิดของเลขบัญชี 4 ตัวท้าย: "xxx-x-x1234-x" → "1234" · "xxx-xxx123-4" → "1234" */
+export function visibleAccount(text: string): string | null {
+  const digits = text.replace(/\D/g, '')
+  return digits.length >= 3 ? digits.slice(-4) : null
 }
 
 /** อ่านชื่อจากบรรทัดที่ start (รวมบรรทัดต่อของชื่อยาว) แล้วดูธนาคารในบล็อกเดียวกัน */
@@ -515,20 +655,25 @@ function readParty(block: Line[], start: number): Party {
     i++
   }
   let bank: string | null = null
+  let account: string | null = null
   let structured = false
   for (let j = i; j < Math.min(block.length, i + 3); j++) {
     const text = block[j]!.text
     if (isNameLike(text) && hasNameMarker(text)) break
     bank ??= bankOf(text)
+    if (isAccountLine(text)) account ??= visibleAccount(text)
     if (isBankLine(text) || isAccountLine(text)) structured = true
   }
-  // ธนาคารอาจอยู่บรรทัดเดียวกับชื่อ เช่น "นาย ก ข ธ.กสิกรไทย"
-  bank ??= bankOf(parts.map((p) => p.text).join(' '))
+  // ธนาคารหรือเลขบัญชีอาจอยู่บรรทัดเดียวกับชื่อ เช่น "นาย ก ข ธ.กสิกรไทย" "นาย ก ข xxx-x-x1234-x"
+  const nameText = parts.map((p) => p.text).join(' ')
+  bank ??= bankOf(nameText)
+  if (/[x*•]{2,}/i.test(nameText)) account ??= visibleAccount(nameText)
   return {
-    name: cleanName(parts.map((p) => p.text).join(' ')),
+    name: cleanName(nameText),
     source: parts.map((p) => p.text).join(' / '),
     conf: Math.min(...parts.map((p) => p.conf)),
     bank,
+    account,
     structured,
     end: i,
   }
@@ -584,7 +729,10 @@ function findParties(lines: Line[]) {
     // มีป้ายฝั่งเดียว: อีกฝั่งดูจากตำแหน่ง (ผู้โอนอยู่ก่อนป้ายผู้รับ ผู้รับอยู่หลังบล็อกผู้โอน)
     if (senderAt < 0 && recipientAt >= 0) {
       const before = unlabelledParties(lines, 0, recipientAt)
-      if (before.length === 1) sender = partyField(before[0]!, 0.78)
+      if (before.length === 1) {
+        senderParty = before[0]!
+        sender = partyField(senderParty, 0.78)
+      }
     }
     if (recipientAt < 0 && senderAt >= 0) {
       const after = unlabelledParties(lines, senderAt + 1, lines.length).filter((p) => p.name !== senderParty?.name)
@@ -627,7 +775,9 @@ function findParties(lines: Line[]) {
         ? 'person'
         : null
   const recipientBank = recipientName && recipientParty?.name === recipientName ? recipientParty.bank : null
-  return { sender, recipient, recipientType, recipientBank, unassigned }
+  const senderAccount = sender.value && senderParty?.name === sender.value ? senderParty.account : null
+  const recipientAccount = recipientName && recipientParty?.name === recipientName ? recipientParty.account : null
+  return { sender, recipient, recipientType, recipientBank, senderAccount, recipientAccount, unassigned }
 }
 
 /* ---------- เลขอ้างอิง ---------- */
@@ -659,6 +809,27 @@ function referenceValue(text: string): string | null {
   return isValidReference(value) ? value : null
 }
 
+/**
+ * ไม่มีป้ายหรือ OCR อ่านป้ายเพี้ยน: เลขรายการของธนาคารไทยยาว 12–30 ตัว มีตัวเลขอย่างน้อย 10 ตัว
+ * อยู่ในบรรทัดที่ไม่ใช่เลขบัญชี ยอดเงิน วันที่ หรือเวลา — รับเฉพาะเมื่อพบค่าเดียว
+ */
+function unlabelledReference(lines: Line[]): SlipField<string> | null {
+  const hits: { value: string; line: Line }[] = []
+  for (const line of lines) {
+    if (isAccountLine(line.text) || TIME.test(line.text) || !dateCandidatesFree(line.text)) continue
+    for (const token of line.text.split(' ')) {
+      const value = token.replace(/[^A-Za-z0-9]/g, '')
+      if (value.length < 12 || value.length > 30 || (value.match(/\d/g) ?? []).length < 10) continue
+      if (/^0\d{9}$/.test(value) || !isValidReference(value)) continue
+      hits.push({ value, line })
+    }
+  }
+  const distinct = new Set(hits.map((h) => h.value))
+  if (distinct.size !== 1) return null
+  const only = hits[0]!
+  return field(only.value, 0.7 * ocrFactor(only.line.conf), only.line.text, 'ไม่พบป้ายเลขอ้างอิง ใช้เลขรายการยาวที่พบบนสลิป')
+}
+
 function findReference(lines: Line[]): SlipField<string> {
   const hits: { value: string; line: Line }[] = []
   let unreadable: Line | null = null
@@ -672,6 +843,8 @@ function findReference(lines: Line[]): SlipField<string> {
     else unreadable ??= line
   })
   if (!hits.length) {
+    const loose = unlabelledReference(lines)
+    if (loose) return loose
     return field<string>(
       null,
       0,
@@ -709,46 +882,126 @@ export function nameMatches(slipName: string, ownerName: string): boolean {
   return owner[owner.length - 1]!.startsWith(slip[slip.length - 1]!)
 }
 
+interface Direction {
+  direction: EntryType | null
+  reason: string
+  guessed: boolean
+}
+
+/**
+ * เงินเข้าหรือออก ดูตามลำดับ
+ *  1. ชื่อผู้โอน/ผู้รับตรงกับชื่อผู้ใช้ (ชื่อในโปรไฟล์ + ชื่อที่ระบบจำได้จากสลิปก่อน ๆ เช่นชื่อภาษาอังกฤษ)
+ *  2. เลขบัญชีที่มองเห็นตรงกับบัญชีที่ระบบจำได้ว่าเป็นของผู้ใช้
+ *  3. เดา: ผู้รับเป็นบริษัท/ร้านค้า = จ่าย · ผู้โอนเป็นบริษัท = รับ (เช่นเงินเดือน) · นอกนั้นถือเป็นจ่าย
+ *     เพราะสลิปที่คนเก็บไว้ส่วนใหญ่คือสลิปที่ตัวเองโอนออก — บอกผู้ใช้ว่าเดา และเปลี่ยนได้
+ * ตัดสินไม่ได้จริงเฉพาะเมื่อทั้งสองฝั่งเป็นผู้ใช้เอง (โอนระหว่างบัญชีตัวเอง ไม่ใช่รายรับหรือรายจ่าย)
+ */
 function decideDirection(
   sender: SlipField<string>,
   recipient: SlipField<string>,
   ownerNames: string[],
-): { direction: EntryType | null; reason: string } {
+  ownAccounts: string[],
+  senderAccount: string | null,
+  recipientAccount: string | null,
+  recipientType: RecipientType | null,
+): Direction {
   const owners = ownerNames.filter((n) => n.trim())
-  if (!owners.length) return { direction: null, reason: 'ยังไม่ได้ตั้งชื่อในโปรไฟล์ จึงเทียบไม่ได้ว่าเงินเข้าหรือออก' }
-  if (!sender.value && !recipient.value) return { direction: null, reason: 'อ่านชื่อผู้โอนและผู้รับไม่ได้' }
-  const isSender = !!sender.value && owners.some((o) => nameMatches(sender.value!, o))
-  const isRecipient = !!recipient.value && owners.some((o) => nameMatches(recipient.value!, o))
-  if (isSender && isRecipient) return { direction: null, reason: 'ผู้โอนและผู้รับเป็นชื่อคุณทั้งคู่ — น่าจะโอนระหว่างบัญชีตัวเอง' }
-  const matched = isSender ? sender : isRecipient ? recipient : null
-  if (matched && matched.confidence < REVIEW_THRESHOLD) {
-    return { direction: null, reason: 'ชื่อที่ตรงกับคุณอ่านได้ไม่ชัด ตรวจก่อนว่าเงินเข้าหรือออก' }
+  const isSender =
+    (!!sender.value && owners.some((o) => nameMatches(sender.value!, o))) || (!!senderAccount && ownAccounts.includes(senderAccount))
+  const isRecipient =
+    (!!recipient.value && owners.some((o) => nameMatches(recipient.value!, o))) ||
+    (!!recipientAccount && ownAccounts.includes(recipientAccount))
+  if (isSender && isRecipient) {
+    return { direction: null, reason: 'ผู้โอนและผู้รับเป็นคุณทั้งคู่ — น่าจะโอนระหว่างบัญชีตัวเอง', guessed: false }
   }
-  if (isSender) return { direction: 'expense', reason: 'ชื่อผู้โอนตรงกับชื่อคุณ' }
-  if (isRecipient) return { direction: 'income', reason: 'ชื่อผู้รับตรงกับชื่อคุณ' }
-  if (!sender.value || !recipient.value) return { direction: null, reason: 'อ่านชื่อได้ฝั่งเดียวและไม่ตรงกับชื่อคุณ' }
-  return { direction: null, reason: 'ชื่อผู้โอนและผู้รับไม่ตรงกับชื่อในโปรไฟล์' }
+  if (isSender || isRecipient) {
+    const matched = isSender ? sender : recipient
+    const unclear = !!matched.value && matched.confidence < REVIEW_THRESHOLD
+    return {
+      direction: isSender ? 'expense' : 'income',
+      reason: `${isSender ? 'ผู้โอน' : 'ผู้รับ'}ตรงกับชื่อหรือบัญชีของคุณ${unclear ? ' (อ่านชื่อไม่ชัด ตรวจอีกครั้ง)' : ''}`,
+      guessed: unclear,
+    }
+  }
+  const senderCompany = !!sender.value && COMPANY_MARK.test(sender.value)
+  if (recipientType === 'company' && !senderCompany) {
+    return { direction: 'expense', reason: 'ผู้รับเป็นบริษัท/ร้านค้า จึงเดาว่าคุณจ่ายเงิน', guessed: true }
+  }
+  if (senderCompany && recipientType !== 'company') {
+    return { direction: 'income', reason: 'ผู้โอนเป็นบริษัท จึงเดาว่าคุณได้รับเงิน', guessed: true }
+  }
+  return {
+    direction: 'expense',
+    reason: owners.length
+      ? 'ชื่อบนสลิปไม่ตรงกับชื่อคุณ จึงเดาว่าเป็นเงินโอนออก'
+      : 'ยังไม่รู้จักชื่อคุณบนสลิป จึงเดาว่าเป็นเงินโอนออก',
+    guessed: true,
+  }
 }
 
 /* ---------- รวมทุกขั้น ---------- */
 
+export interface SlipContext {
+  /** ข้อความจาก QR ตรวจสอบสลิป (ถ้าอ่านได้) */
+  qr?: string | null
+  /** วันที่ของไฟล์รูป (YYYY-MM-DD) — สำรองเมื่อสลิปไม่มีวันที่ที่อ่านได้ */
+  fileDate?: string | null
+  /** เลขบัญชีชุดท้ายที่ระบบจำได้ว่าเป็นของผู้ใช้ */
+  ownAccounts?: string[]
+}
+
+/** เลขอ้างอิงที่ขึ้นต้นด้วยวันที่ YYYYMMDD (เช่นของไทยพาณิชย์) ใช้เป็นวันที่สำรองได้ */
+function dateFromReference(reference: string | null, today: string): string | null {
+  const m = reference?.match(/^(20\d{2})(\d{2})(\d{2})/)
+  if (!m) return null
+  const date = validDate(Number(m[1]), Number(m[2]), Number(m[3]))
+  return date && date <= today && date >= yearsBefore(today, 1) ? date : null
+}
+
 /**
  * @param input ข้อความ OCR ทั้งก้อน หรือรายบรรทัดพร้อมความมั่นใจ
- * @param ownerNames ชื่อเจ้าของบัญชี ใช้ตัดสินว่าเงินเข้าหรือออก
- * @param today วันนี้ตามเวลาไทย (YYYY-MM-DD) — ใช้กันวันที่ในอนาคตเท่านั้น ไม่ใช้แทนวันที่ที่หาไม่เจอ
+ * @param ownerNames ชื่อเจ้าของบัญชี (รวมชื่อที่ระบบจำได้) ใช้ตัดสินว่าเงินเข้าหรือออก
+ * @param today วันนี้ตามเวลาไทย (YYYY-MM-DD) — ใช้กันวันที่ในอนาคต
+ * @param context ข้อมูลเสริมนอกตัวอักษรบนสลิป: QR วันที่ของไฟล์ และบัญชีของผู้ใช้
  */
-export function parseSlip(input: string | OcrLine[], ownerNames: string[], today: string): SlipExtraction {
+export function parseSlip(input: string | OcrLine[], ownerNames: string[], today: string, context: SlipContext = {}): SlipExtraction {
   const lines = toLines(input)
   const amount = findAmount(lines)
-  const { date, time } = findDateTime(lines, today)
-  const { sender, recipient, recipientType, recipientBank, unassigned } = findParties(lines)
-  const reference = findReference(lines)
-  const { direction, reason } = decideDirection(sender, recipient, ownerNames)
+  let { date, time } = findDateTime(lines, today)
+  const { sender, recipient, recipientType, recipientBank, senderAccount, recipientAccount, unassigned } = findParties(lines)
+  let reference = findReference(lines)
   const banks = [...new Set(lines.map((l) => bankOf(l.text)).filter((b): b is string => !!b))]
+
+  // QR ตรวจสอบสลิปแม่นกว่าตัวอักษรที่ OCR อ่าน
+  const qr = parseSlipQr(context.qr)
+  if (qr) {
+    reference = field(qr.reference, 0.99, 'QR บนสลิป')
+    if (qr.bank && !banks.includes(qr.bank)) banks.unshift(qr.bank)
+  }
+
+  // ไม่มีวันที่ที่อ่านได้: ลองจากเลขอ้างอิง แล้วจากวันที่ของไฟล์รูป (สลิปส่วนใหญ่แคปทันทีหลังโอน)
+  if (!date.value) {
+    const fromRef = dateFromReference(reference.value, today)
+    const fromFile = context.fileDate && context.fileDate <= today ? context.fileDate : null
+    if (fromRef) date = field(fromRef, 0.7, `เลขอ้างอิง ${reference.value}`, 'ไม่พบวันที่บนสลิป ใช้วันที่จากเลขอ้างอิง ตรวจอีกครั้ง')
+    else if (fromFile) date = field(fromFile, 0.55, 'วันที่ของไฟล์รูป', 'ไม่พบวันที่บนสลิป ใช้วันที่ของไฟล์รูปแทน ตรวจอีกครั้ง')
+    if (date.value) time = time.value ? time : field<string>(null, 0, null)
+  }
+
+  const { direction, reason, guessed } = decideDirection(
+    sender,
+    recipient,
+    ownerNames,
+    context.ownAccounts ?? [],
+    senderAccount,
+    recipientAccount,
+    recipientType,
+  )
 
   const fields: Record<SlipFieldKey, SlipField<unknown>> = { amount, date, time, sender, recipient, reference }
   // ช่องหลักต้องตรวจเมื่อหาไม่เจอหรือไม่มั่นใจ ช่องรองต้องตรวจเฉพาะเมื่ออ่านได้แต่ไม่มั่นใจ
-  const required: SlipFieldKey[] = ['amount', 'date', 'recipient', 'reference']
+  // เลขอ้างอิงเป็นช่องรอง: บางสลิปไม่มี (วอลเล็ต) และการกันสลิปซ้ำยังใช้รูปและวันที่+ยอด+ชื่อได้
+  const required: SlipFieldKey[] = ['amount', 'date', 'recipient']
   const review = (Object.keys(fields) as SlipFieldKey[]).filter((key) => {
     const f = fields[key]!
     if (f.value === null) return required.includes(key)
@@ -766,8 +1019,11 @@ export function parseSlip(input: string | OcrLine[], ownerNames: string[], today
     banks,
     reference,
     unassignedNames: unassigned,
+    senderAccount,
+    recipientAccount,
     direction,
     directionReason: reason,
+    directionGuessed: guessed,
     review,
   }
 }
@@ -863,6 +1119,13 @@ export function findSlipDuplicates<E extends LedgerEntry>(candidate: SlipCandida
 /** วันนี้ตามเวลาไทย — สลิปพิมพ์วันเวลาไทยเสมอ ไม่ว่าเครื่องผู้ใช้ตั้งโซนเวลาไหน */
 export function bangkokToday(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+}
+
+/** วันที่ของไฟล์รูปตามเวลาไทย — ใช้สำรองเมื่อสลิปไม่มีวันที่ (สลิปส่วนใหญ่แคปหน้าจอทันทีหลังโอน) */
+export function fileDateOf(file: Blob): string | null {
+  const modified = (file as File).lastModified
+  if (!modified || !Number.isFinite(modified)) return null
+  return bangkokToday(new Date(modified))
 }
 
 /** ข้อความรายละเอียดของรายการ — ใส่เฉพาะสิ่งที่อ่านได้จริง */

@@ -19,6 +19,8 @@ export interface SlipOcrResult extends OcrPage {
   imageHash: string | null
   /** ปรับภาพก่อนอ่านได้หรือไม่ (เบราว์เซอร์เก่าบางตัวทำไม่ได้ จะอ่านจากรูปเดิม) */
   enhanced: boolean
+  /** ข้อความใน QR ตรวจสอบสลิป — null ถ้าไม่มีหรืออ่านไม่ได้ (ดู slipQr) */
+  qr?: string | null
 }
 
 /* ---------- ฟังก์ชันบริสุทธิ์ (ทดสอบได้โดยไม่ต้องมีเบราว์เซอร์) ---------- */
@@ -136,20 +138,73 @@ function rotate(source: HTMLCanvasElement, degrees: Rotation): HTMLCanvasElement
   return canvas
 }
 
-export async function readSlipImage(file: Blob, onProgress: ReadProgress = () => {}): Promise<SlipOcrResult> {
-  const [imageHash, canvas] = await Promise.all([sha256(file), prepareCanvas(file)])
-  return withOcrWorker(onProgress, async (recognize) => {
-    const first = { ...(await recognize(canvas ?? file)), rotation: 0 as Rotation }
-    if (!canvas || ocrScore(first) >= GOOD_ENOUGH_SCORE) return { ...first, imageHash, enhanced: !!canvas }
-
-    // อ่านได้แย่ อาจเป็นรูปตะแคงหรือกลับหัว
-    const tries = [first]
-    for (const degrees of [90, 270, 180] as Rotation[]) {
-      onProgress(`ลองหมุนรูป ${degrees}°`, 0)
-      const page = { ...(await recognize(rotate(canvas, degrees))), rotation: degrees }
-      tries.push(page)
-      if (ocrScore(page) >= GOOD_ENOUGH_SCORE) break
+/**
+ * อ่าน QR บนสลิป — ใช้ตัวอ่านของเบราว์เซอร์ (Android/Mac) ก่อน ไม่มีค่อยใช้ jsQR
+ * อ่านไม่ได้คืน null ไม่ทำให้การอ่านสลิปล้ม
+ */
+async function readQr(file: Blob, canvas: HTMLCanvasElement | null): Promise<string | null> {
+  try {
+    const Detector = (globalThis as { BarcodeDetector?: new (o: { formats: string[] }) => { detect(s: unknown): Promise<{ rawValue: string }[]> } })
+      .BarcodeDetector
+    if (Detector) {
+      const codes = await new Detector({ formats: ['qr_code'] }).detect(canvas ?? (await createImageBitmap(file)))
+      const hit = codes.find((c) => /^\d{4}/.test(c.rawValue)) ?? codes[0]
+      if (hit) return hit.rawValue
     }
-    return { ...pickBestOrientation(tries), imageHash, enhanced: true }
-  })
+    if (!canvas) return null
+    const { default: jsQR } = await import('jsqr')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    return jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })?.data ?? null
+  } catch {
+    return null
+  }
+}
+
+type Recognize = (image: Blob | HTMLCanvasElement) => Promise<OcrPage>
+
+async function readWith(recognize: Recognize, file: Blob, onProgress: ReadProgress): Promise<SlipOcrResult> {
+  const [imageHash, canvas] = await Promise.all([sha256(file), prepareCanvas(file)])
+  const qr = await readQr(file, canvas)
+  const first = { ...(await recognize(canvas ?? file)), rotation: 0 as Rotation }
+  if (!canvas || ocrScore(first) >= GOOD_ENOUGH_SCORE) return { ...first, imageHash, enhanced: !!canvas, qr }
+
+  // อ่านได้แย่ อาจเป็นรูปตะแคงหรือกลับหัว
+  const tries = [first]
+  for (const degrees of [90, 270, 180] as Rotation[]) {
+    onProgress(`ลองหมุนรูป ${degrees}°`, 0)
+    const page = { ...(await recognize(rotate(canvas, degrees))), rotation: degrees }
+    tries.push(page)
+    if (ocrScore(page) >= GOOD_ENOUGH_SCORE) break
+  }
+  return { ...pickBestOrientation(tries), imageHash, enhanced: true, qr }
+}
+
+export async function readSlipImage(file: Blob, onProgress: ReadProgress = () => {}): Promise<SlipOcrResult> {
+  return withOcrWorker(onProgress, (recognize) => readWith(recognize, file, onProgress))
+}
+
+/**
+ * อ่านสลิปหลายใบด้วยตัวอ่าน OCR ตัวเดียว — โหลดข้อมูลภาษาครั้งเดียว เร็วกว่าเปิดใหม่ทุกใบมาก
+ * ใบไหนอ่านไม่ได้แจ้งเป็น error ของใบนั้น ใบอื่นอ่านต่อ
+ */
+export async function readSlipBatch(
+  files: Blob[],
+  onEach: (index: number, result: SlipOcrResult | null) => void,
+  isCancelled: () => boolean = () => false,
+): Promise<void> {
+  await withOcrWorker(
+    () => {},
+    async (recognize) => {
+      for (let i = 0; i < files.length; i++) {
+        if (isCancelled()) return
+        try {
+          onEach(i, await readWith(recognize, files[i]!, () => {}))
+        } catch {
+          onEach(i, null)
+        }
+      }
+    },
+  )
 }

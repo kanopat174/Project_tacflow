@@ -12,7 +12,8 @@ import { loadMemory, recallEntry, rememberMany } from '@/services/entryMemory'
 import { guessCategory } from '@/services/ledgerCsv'
 import type { LoanTag, SlipMeta } from '@/services/ledgerEngine'
 import { LOAN_ROLE_LABELS, loanBalances, suggestLoanRole } from '@/services/loans'
-import { bangkokToday, findSlipDuplicates, parseSlip, slipNote, type SlipFieldKey } from '@/services/slipParse'
+import { learnSelfFromSlip, loadSelf } from '@/services/selfIdentity'
+import { bangkokToday, fileDateOf, findSlipDuplicates, parseSlip, slipNote, type SlipFieldKey } from '@/services/slipParse'
 import { formatBaht } from '@/services/taxEngine'
 import { useAuthStore } from '@/stores/auth'
 import { useGameStore } from '@/stores/game'
@@ -34,7 +35,14 @@ interface Row {
   categoryKey: string
   note: string
   meta: SlipMeta | null
+  /** ปัญหาที่ต้องแก้ก่อน — มีแล้วไม่เลือกใบนี้ไว้ให้ */
   warnings: string[]
+  /** ข้อสังเกตที่ควรดู แต่ไม่ต้องแก้ */
+  notes: string[]
+  /** ทิศทางเงินมาจากการเดา */
+  guessed: boolean
+  /** เลขบัญชีที่มองเห็นบนสลิป ใช้จำบัญชีของผู้ใช้ */
+  accounts: { sender: string | null; recipient: string | null }
   /** คู่โอนค้างเงินกันอยู่ — บันทึกเป็นเงินคืนให้ */
   loan: LoanTag | null
 }
@@ -63,7 +71,7 @@ const workspace = computed(() => ledger.workspaces.find((w) => w.id === workspac
 /** ยอดเงินยืมค้างของแต่ละคน ใช้จับสลิปรับเงินคืน */
 const loanBook = computed(() => loanBalances(game.entries))
 const readCount = computed(() => rows.value.filter((r) => r.status !== 'waiting' && r.status !== 'reading').length)
-const selected = computed(() => rows.value.filter((r) => r.include && r.status === 'ready'))
+const selected = computed(() => rows.value.filter((r) => r.include && (r.status === 'ready' || r.status === 'failed')))
 const busy = computed(() => rows.value.some((r) => r.status === 'reading' || r.status === 'waiting'))
 
 const categories = (type: EntryType | '') => (workspace.value && type ? categoriesOf(workspace.value.mode, type) : [])
@@ -89,6 +97,9 @@ watch(
       note: '',
       meta: null,
       warnings: [],
+      notes: [],
+      guessed: false,
+      accounts: { sender: null, recipient: null },
       loan: null,
     }))
     await readAll()
@@ -96,24 +107,56 @@ watch(
   { immediate: true },
 )
 
+/** ใบที่อ่านไม่ได้ยังกรอกเองได้ รูปยังแนบเป็นหลักฐาน */
+function markFailed(row: Row) {
+  row.status = 'failed'
+  row.include = false
+  row.date = fileDateOf(row.file) ?? ''
+  row.type = 'expense'
+  row.warnings = ['อ่านรูปไม่สำเร็จ — กรอกยอดเองได้ (ครั้งแรกต้องต่ออินเทอร์เน็ตเพื่อโหลดตัวอ่านภาษาไทย)']
+  applyCategory(row)
+}
+
 async function readAll() {
-  const { readSlipImage } = await import('@/services/slipReader')
-  for (const row of rows.value) {
-    if (cancelled) return
-    row.status = 'reading'
-    try {
-      const ocr = await readSlipImage(row.file)
-      fill(row, ocr.lines, ocr.imageHash)
-      row.status = 'ready'
-    } catch {
-      row.status = 'failed'
-      row.warnings = ['อ่านรูปไม่สำเร็จ — ครั้งแรกต้องต่ออินเทอร์เน็ตเพื่อโหลดตัวอ่านภาษาไทย']
-    }
+  // ตัวอ่านตัวเดียวทั้งชุด โหลดข้อมูลภาษาครั้งเดียว
+  const pending = rows.value.filter((r) => r.status === 'waiting')
+  if (!pending.length) return
+  pending[0]!.status = 'reading'
+  try {
+    const { readSlipBatch } = await import('@/services/slipReader')
+    await readSlipBatch(
+      pending.map((r) => r.file),
+      (i, ocr) => {
+        const row = pending[i]!
+        if (ocr) {
+          fill(row, ocr.lines, ocr.imageHash, ocr.qr ?? null)
+          row.status = 'ready'
+        } else markFailed(row)
+        if (pending[i + 1]) pending[i + 1]!.status = 'reading'
+      },
+      () => cancelled,
+    )
+  } catch {
+    // โหลดตัวอ่านไม่ได้ (ออฟไลน์) — ทุกใบที่ยังไม่ได้อ่านให้กรอกเอง
+    for (const row of pending) if (row.status === 'waiting' || row.status === 'reading') markFailed(row)
   }
 }
 
-function fill(row: Row, lines: Parameters<typeof parseSlip>[0], imageHash: string | null) {
-  const result = parseSlip(lines, [auth.user?.fullName ?? ''], bangkokToday())
+async function retry(row: Row) {
+  row.status = 'waiting'
+  row.warnings = []
+  await readAll()
+}
+
+function fill(row: Row, lines: Parameters<typeof parseSlip>[0], imageHash: string | null, qr: string | null) {
+  const self = auth.user ? loadSelf(auth.user.id) : { names: [], accounts: [] }
+  const result = parseSlip(lines, [auth.user?.fullName ?? '', ...self.names], bangkokToday(), {
+    qr,
+    fileDate: fileDateOf(row.file),
+    ownAccounts: self.accounts,
+  })
+  row.accounts = { sender: result.senderAccount, recipient: result.recipientAccount }
+  row.guessed = result.directionGuessed
   const meta: SlipMeta = {
     time: result.time.value,
     sender: result.sender.value,
@@ -129,9 +172,14 @@ function fill(row: Row, lines: Parameters<typeof parseSlip>[0], imageHash: strin
   row.date = result.date.value ?? ''
   row.type = result.direction ?? ''
   row.warnings = []
-  if (!result.direction) row.warnings.push('ไม่รู้ว่าเงินเข้าหรือออก — เลือกประเภทเอง')
-  if (result.review.length) row.warnings.push(`ตรวจ ${result.review.map((k) => FIELD_LABELS[k]).join(', ')} กับรูป`)
-  if (!row.amount || !row.date) row.warnings.push('อ่านยอดหรือวันที่ไม่ได้ — กรอกเอง')
+  row.notes = []
+  if (!result.direction) row.warnings.push(`${result.directionReason} — เลือกประเภทเอง`)
+  else if (result.directionGuessed) row.notes.push(`${result.directionReason} (เปลี่ยนได้)`)
+  if (!row.amount) row.warnings.push('อ่านยอดไม่ได้ — กรอกเอง')
+  if (!row.date) row.warnings.push('อ่านวันที่ไม่ได้ — กรอกเอง')
+  const softReview = result.review.filter((k) => !(k === 'amount' && !row.amount))
+  if (softReview.length) row.notes.push(`ตรวจ ${softReview.map((k) => FIELD_LABELS[k]).join(', ')} กับรูป`)
+  if (result.date.issue && result.date.value) row.notes.push(result.date.issue)
 
   applyCategory(row)
 
@@ -144,12 +192,17 @@ function fill(row: Row, lines: Parameters<typeof parseSlip>[0], imageHash: strin
   )
   if (dupInLedger) row.warnings.push('น่าจะเคยบันทึกสลิปนี้แล้ว')
   if (dupInBatch) row.warnings.push('ซ้ำกับสลิปอีกใบในชุดนี้')
+  // เลือกไว้ให้ถ้าข้อมูลครบและไม่ซ้ำ — ข้อสังเกตอื่น (notes) แสดงให้ดูแต่ไม่ต้องติ๊กเอง
   row.include = !row.warnings.length
 }
 
 /** หมวดและรายละเอียด: เดาจากคำ แล้วใช้ความจำของคู่โอนเดิมถ้ามี */
 function applyCategory(row: Row) {
-  if (!row.meta || !row.type || !workspace.value) return
+  if (!row.type || !workspace.value) return
+  if (!row.meta) {
+    if (!categories(row.type).some((c) => c.key === row.categoryKey)) row.categoryKey = categories(row.type)[0]?.key ?? ''
+    return
+  }
   const mode = workspace.value.mode
   row.note = slipNote(row.meta, row.type)
   row.categoryKey = guessCategory(row.note, row.type, mode)
@@ -165,6 +218,16 @@ function applyCategory(row: Row) {
 
 function changeType(row: Row, type: EntryType) {
   row.type = type
+  row.warnings = row.warnings.filter((w) => !w.endsWith('เลือกประเภทเอง'))
+  // ผู้ใช้บอกเองว่าสลิปนี้เข้าหรือออก — จำชื่อและบัญชีฝั่งที่เป็นผู้ใช้
+  if (auth.user && row.meta) {
+    learnSelfFromSlip(auth.user.id, type, {
+      sender: row.meta.sender,
+      recipient: row.meta.recipient,
+      senderAccount: row.accounts.sender,
+      recipientAccount: row.accounts.recipient,
+    })
+  }
   applyCategory(row)
 }
 
@@ -271,7 +334,7 @@ const summary = computed(() => ({
               {{ row.status === 'reading' ? 'กำลังอ่าน...' : 'รอคิว' }}
             </div>
             <div v-else-if="row.status === 'saved'" class="text-ok small">✓ บันทึกแล้ว</div>
-            <template v-else-if="row.status === 'ready'">
+            <template v-else-if="row.status === 'ready' || row.status === 'failed'">
               <div class="bulk-fields">
                 <label class="bulk-check">
                   <input v-model="row.include" type="checkbox" :aria-label="`เลือกสลิปใบที่ ${row.id + 1}`" />
@@ -294,6 +357,10 @@ const summary = computed(() => ({
               <input v-model="row.note" class="bulk-note" type="text" :aria-label="`รายละเอียดของสลิปใบที่ ${row.id + 1}`" />
             </template>
             <p v-for="w in row.warnings" :key="w" class="small text-warn">⚠ {{ w }}</p>
+            <p v-for="n in row.notes" :key="n" class="small muted">ℹ {{ n }}</p>
+            <button v-if="row.status === 'failed' && !busy" class="btn btn-ghost btn-sm" type="button" @click="retry(row)">
+              ลองอ่านใหม่
+            </button>
             <p v-if="row.loan && row.status === 'ready'" class="small muted">
               🤝 บันทึกเป็น "{{ LOAN_ROLE_LABELS[row.loan.role] }}" ของ {{ row.loan.party }}
               <button class="btn btn-ghost btn-sm" type="button" @click="row.loan = null">ไม่ใช่</button>

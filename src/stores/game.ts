@@ -24,6 +24,7 @@ import { weeklyRecap } from '@/services/weeklyRecap'
 import { upcomingDeadlines } from '@/services/taxCalendar'
 import { backupOverdueDays, backupStamp, readLastBackup, requestPersistentStorage } from '@/services/storageSafety'
 import { FUND_KINDS, loadFunds, lotStatuses, type FundBook } from '@/services/fundHoldings'
+import { detectSubscriptions, loadSubStatuses, upcomingCharges } from '@/services/subscriptions'
 import { formatBaht, roundMoney } from '@/services/taxEngine'
 import { useTheme } from '@/composables/useTheme'
 import { useAuthStore } from './auth'
@@ -201,6 +202,23 @@ export const useGameStore = defineStore('game', () => {
         text: d.title,
         to: d.to ?? '/dashboard',
       })
+    }
+
+    // ค่าบริการรายเดือนที่จะตัดเงินภายใน 3 วัน — ยังทันยกเลิกถ้าไม่ได้ใช้
+    if (auth.user) {
+      const statuses = loadSubStatuses(auth.user.id)
+      for (const sub of upcomingCharges(detectSubscriptions(entries.value, today.value), statuses)) {
+        list.push({
+          id: `subscription:${sub.key}:${sub.nextDate}`,
+          level: statuses[sub.key] === 'unused' ? 'warn' : 'info',
+          icon: '🔁',
+          title: sub.daysUntil === 0 ? `${sub.name} ตัดเงินวันนี้` : `${sub.name} จะตัดเงินอีก ${sub.daysUntil} วัน`,
+          text:
+            `${formatBaht(sub.amount)}` +
+            (statuses[sub.key] === 'unused' ? ' · คุณบอกว่าไม่ค่อยได้ใช้ ยกเลิกก่อนตัดเงินได้' : ''),
+          to: '/subscriptions',
+        })
+      }
     }
 
     // ภาษีที่ต้องชำระเพิ่มและยังไม่ได้จ่าย ทั้งแบบครั้งเดียวและผ่อน 3 งวด
