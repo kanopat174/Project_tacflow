@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import { CALCULATOR_CATEGORIES } from '@/data/calculatorCategories'
@@ -7,6 +7,17 @@ import { CALCULATOR_CATEGORIES } from '@/data/calculatorCategories'
 const route = useRoute()
 
 const active = computed(() => CALCULATOR_CATEGORIES.find((c) => c.to === route.path))
+
+/* มือถือ: แถบหมวดเลื่อนข้างได้ เลื่อนแท็บที่เลือกมาไว้กลางแถบ จะได้เห็นว่าอยู่หมวดไหน (คอมแท็บพอดีแถบ ไม่ขยับ) */
+const tabBar = ref<HTMLElement | null>(null)
+function centerActiveTab() {
+  const bar = tabBar.value
+  const tab = bar?.querySelector<HTMLElement>('.tab-active, .router-link-active')
+  if (!bar || !tab || bar.scrollWidth <= bar.clientWidth) return
+  bar.scrollTo({ left: tab.offsetLeft - (bar.clientWidth - tab.offsetWidth) / 2 })
+}
+onMounted(centerActiveTab)
+watch(() => route.path, () => nextTick(centerActiveTab))
 </script>
 
 <template>
@@ -24,7 +35,7 @@ const active = computed(() => CALCULATOR_CATEGORIES.find((c) => c.to === route.p
         </p>
       </div>
 
-      <nav class="tab-bar no-print" aria-label="หมวดเครื่องคำนวณ">
+      <nav ref="tabBar" class="tab-bar tab-bar-scroll no-print" aria-label="หมวดเครื่องคำนวณ">
         <RouterLink to="/calculator" class="tab" active-class="" :class="{ 'tab-active': !active }">
           ทุกหมวด
         </RouterLink>
