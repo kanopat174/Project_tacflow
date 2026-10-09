@@ -106,7 +106,7 @@ function resetDemo() {
 const pwa = usePwaInstall()
 
 async function installApp() {
-  if (await pwa.install()) toast.success('ติดตั้ง TaxFlow เป็นแอปแล้ว')
+  if (await pwa.install()) toast.success('ติดตั้ง Jodwise เป็นแอปแล้ว')
 }
 
 const photo = usePhotoPicker()

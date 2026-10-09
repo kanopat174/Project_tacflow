@@ -1,12 +1,12 @@
 /**
- * Service worker ของ TaxFlow — ให้ติดตั้งเป็นแอปและเปิดได้ตอนไม่มีอินเทอร์เน็ต
+ * Service worker ของ Jodwise (จดไว้) — ให้ติดตั้งเป็นแอปและเปิดได้ตอนไม่มีอินเทอร์เน็ต
  *
  * ข้อมูลผู้ใช้อยู่ใน localStorage/IndexedDB ของเบราว์เซอร์อยู่แล้ว ไฟล์นี้จึงแค่เก็บไฟล์ของเว็บไว้
  *  - หน้าเว็บ (navigation): ลองโหลดจากเน็ตก่อน ไม่ได้ค่อยใช้หน้าที่เก็บไว้ จะได้ได้เวอร์ชันใหม่เสมอเมื่อออนไลน์
  *  - ไฟล์ JS/CSS/ฟอนต์/รูป: ใช้ที่เก็บไว้ก่อน แล้วอัปเดตเบื้องหลัง (ไฟล์ของ Vite มี hash ในชื่ออยู่แล้ว)
  */
-const CACHE = 'taxflow-v1'
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
+const CACHE = 'jodwise-v1'
+const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()))

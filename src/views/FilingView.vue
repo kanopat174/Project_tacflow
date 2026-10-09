@@ -172,7 +172,7 @@ function goToStatus() {
           <template v-else>ภาษีที่ถูกหักไว้พอดีกับที่ต้องเสีย ไม่ต้องชำระเพิ่มและไม่มียอดขอคืน</template>
         </p>
         <div class="notice notice-warn mt-2" style="text-align: left">
-          <strong>TaxFlow ไม่ได้ส่งแบบให้กรมสรรพากร</strong>
+          <strong>Jodwise ไม่ได้ส่งแบบให้กรมสรรพากร</strong>
           นำตัวเลขในสรุปนี้ไปยื่นด้วยตัวเองที่ระบบ e-Filing ของกรมสรรพากรภายในกำหนดเวลา
           แล้วกลับมาอัปเดตความคืบหน้าที่หน้าสรุปแบบ
         </div>
@@ -498,7 +498,7 @@ function goToStatus() {
               <label class="check mt-2">
                 <input v-model="filing.accepted" type="checkbox" />
                 <span>
-                  ข้าพเจ้ารับรองว่าข้อมูลข้างต้นถูกต้องตามความเป็นจริง และเข้าใจว่า TaxFlow
+                  ข้าพเจ้ารับรองว่าข้อมูลข้างต้นถูกต้องตามความเป็นจริง และเข้าใจว่า Jodwise
                   ช่วยคำนวณและบันทึกสรุปเท่านั้น ข้าพเจ้าต้องนำไปยื่นแบบเองที่ระบบ e-Filing ของกรมสรรพากร
                 </span>
               </label>

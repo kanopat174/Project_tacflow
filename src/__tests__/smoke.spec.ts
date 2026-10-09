@@ -128,7 +128,7 @@ describe('เอกสารสำหรับบันทึกเป็น PDF
       const doc = document.querySelector('body > .tax-document')
       expect(doc, `${path} ไม่มีเอกสารสำหรับพิมพ์`).not.toBeNull()
       expect(doc?.textContent).toContain(title)
-      expect(doc?.textContent).toContain('TaxFlow')
+      expect(doc?.textContent).toContain('Jodwise')
       // ต้องมีหัวข้อสรุปและตัวเลขสกุลบาทอย่างน้อยหนึ่งจุด
       expect(doc?.querySelector('.doc-headline strong')?.textContent ?? '').toMatch(/฿/)
       expect(doc?.querySelectorAll('.doc-section').length ?? 0).toBeGreaterThan(0)

@@ -5,6 +5,7 @@ import { ApiError } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import AppIcon from '@/components/AppIcon.vue'
+import BrandWordmark from '@/components/BrandWordmark.vue'
 
 const auth = useAuthStore()
 const toast = useToastStore()
@@ -48,6 +49,7 @@ async function submit() {
   <main id="main-content" tabindex="-1" class="section">
     <div class="container">
       <div class="auth-shell">
+        <RouterLink to="/" class="auth-logo" aria-label="กลับหน้าแรก Jodwise"><BrandWordmark :height="64" /></RouterLink>
         <div class="section-head text-center">
           <span class="eyebrow">บัญชีสมาชิก</span>
           <h2>เข้าสู่ระบบ</h2>

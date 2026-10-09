@@ -76,7 +76,7 @@ const FEATURES = [
           <span class="eyebrow">ปีภาษี 2568</span>
           <h1>ยื่นภาษี<em>ไม่ต้องเดา</em><br />รู้ยอดจริงก่อนกดส่ง</h1>
           <p class="lede">
-            TaxFlow คำนวณภาษีเงินได้บุคคลธรรมดาตามอัตราขั้นบันไดจริง หักค่าใช้จ่ายตามประเภทเงินได้
+            Jodwise คำนวณภาษีเงินได้บุคคลธรรมดาตามอัตราขั้นบันไดจริง หักค่าใช้จ่ายตามประเภทเงินได้
             คุมเพดานค่าลดหย่อนให้อัตโนมัติ แล้วพาคุณไปจนถึงหน้ายื่นแบบในขั้นตอนเดียวกัน
           </p>
           <div class="cta-row">
@@ -179,7 +179,7 @@ const FEATURES = [
     <section class="section" style="padding-top: 0">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">Why TaxFlow</span>
+          <span class="eyebrow">Why Jodwise</span>
           <h2>ตัวเลขที่ตรวจย้อนกลับได้</h2>
         </div>
         <div class="grid grid-4">

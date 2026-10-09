@@ -12,6 +12,7 @@
 import { categoriesOf, type WorkspaceMode } from '@/data/workspaceModes'
 import { dueRecurringDates, type Evidence, type Goal, type LedgerEntry, type RecurringTemplate } from './ledgerEngine'
 import { fileStore } from './fileStore'
+import { sanitizeSlipMeta } from './slipParse'
 import { INSTALLMENT_COUNT, canPayInInstallments, type PaymentPlan } from './latePayment'
 import {
   backupCounts,
@@ -228,6 +229,13 @@ function randomId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
 }
 
+/** YYYY-MM-DD ที่มีอยู่จริงในปฏิทิน (กัน 2026-02-31 ซึ่งบางเบราว์เซอร์เลื่อนเป็นมีนาคมให้เอง) */
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
 /* ---------- ฐานข้อมูลจำลองใน localStorage ---------- */
 
 function seedDatabase(): Database {
@@ -237,7 +245,7 @@ function seedDatabase(): Database {
       {
         id: 'u_admin',
         username: 'admin',
-        fullName: 'ผู้ดูแลระบบ TaxFlow',
+        fullName: 'ผู้ดูแลระบบ Jodwise',
         email: 'admin@taxflow.local',
         citizenId: '1000000000001',
         phone: '020000000',
@@ -861,16 +869,24 @@ export const api = {
     const amount = Number(input.amount)
     if (!Number.isFinite(amount) || amount <= 0) throw new ApiError('จำนวนเงินต้องมากกว่า 0')
     if (!input.date) throw new ApiError('กรุณาเลือกวันที่ของรายการ')
+    // เก็บเป็นวันที่ตามปฏิทินล้วน (ไม่มีเวลา/โซนเวลา) วันที่จึงไม่เลื่อนไม่ว่าเปิดจากโซนเวลาไหน
+    if (!isCalendarDate(input.date)) {
+      throw new ApiError('วันที่ของรายการไม่ถูกต้อง')
+    }
     if (!input.categoryKey) throw new ApiError('กรุณาเลือกหมวดของรายการ')
 
+    const { slip, ...rest } = input
     const record: EntryRecord = {
-      ...input,
+      ...rest,
       amount,
       note: (input.note ?? '').trim(),
       id: randomId('e'),
       workspaceId,
       userId: user.id,
     }
+    // ข้อมูลจากสลิปมาจาก OCR — ตรวจรูปแบบทุกช่องก่อนเก็บ
+    const meta = slip === undefined ? undefined : sanitizeSlipMeta(slip)
+    if (meta) record.slip = meta
     db.entries.push(record)
     writeDatabase(db)
     return delay(record)

@@ -35,9 +35,9 @@ describe('ตรวจไฟล์สำรอง', () => {
     expect(parsed.files.ev1).toMatch(/^data:image\/png/)
   })
 
-  it('ปฏิเสธไฟล์ที่ไม่ใช่ของ TaxFlow หรือคนละรุ่น', () => {
+  it('ปฏิเสธไฟล์ที่ไม่ใช่ของ Jodwise หรือคนละรุ่น', () => {
     expect(() => parseBackup('not json')).toThrow(BackupError)
-    expect(() => parseBackup('{"app":"other"}')).toThrow('ไม่ใช่ไฟล์สำรองข้อมูลของ TaxFlow')
+    expect(() => parseBackup('{"app":"other"}')).toThrow('ไม่ใช่ไฟล์สำรองข้อมูลของ Jodwise')
     expect(() => parseBackup(JSON.stringify({ ...sample(), version: 99 }))).toThrow('รุ่น 99')
     const broken = sample() as unknown as { data: { entries: unknown } }
     broken.data.entries = [{ noId: true }]

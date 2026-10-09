@@ -180,7 +180,7 @@ async function renderImage(): Promise<Blob | null> {
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'center'
   ctx.font = `600 44px ${font}`
-  ctx.fillText(`TaxFlow · สรุปปี ${s.year + 543}`, 540, 120)
+  ctx.fillText(`Jodwise · สรุปปี ${s.year + 543}`, 540, 120)
 
   const mascot = await loadImage(mascotDataUrl(theme.mascot.value).slice(5, -2))
   if (mascot) ctx.drawImage(mascot, 390, 160, 300, 300)
@@ -223,7 +223,7 @@ async function saveImage() {
     const file = new File([blob], `taxflow-wrapped-${summary.value.year + 543}.png`, { type: 'image/png' })
     // มือถือที่แชร์ไฟล์ได้ เปิดหน้าแชร์ให้เลย ไม่งั้นดาวน์โหลดไฟล์
     if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'สรุปปีของฉันจาก TaxFlow' })
+      await navigator.share({ files: [file], title: 'สรุปปีของฉันจาก Jodwise' })
     } else {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')

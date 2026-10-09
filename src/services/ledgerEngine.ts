@@ -34,6 +34,26 @@ export interface LedgerEntry {
   vatAmount?: number
   /** สัญลักษณ์ที่เทรด (โหมดเทรดเดอร์) */
   symbol?: string
+  /** ข้อมูลจากสลิปโอนเงิน — มีเฉพาะรายการที่บันทึกจากสลิป ช่องที่อ่านไม่ได้เป็น null */
+  slip?: SlipMeta
+}
+
+export type RecipientType = 'person' | 'company'
+
+export interface SlipMeta {
+  /** HH:MM เวลาไทยตามที่พิมพ์บนสลิป */
+  time: string | null
+  sender: string | null
+  recipient: string | null
+  recipientType: RecipientType | null
+  /** ธนาคารของฝั่งผู้รับ ถ้าแยกได้ */
+  recipientBank: string | null
+  /** ธนาคารทั้งหมดที่พบบนสลิป */
+  banks: string[]
+  /** เลขอ้างอิงตามที่พิมพ์บนสลิป (ตัดเฉพาะช่องว่างคั่นกลุ่ม) */
+  reference: string | null
+  /** SHA-256 ของไฟล์รูปสลิป ใช้ตรวจสลิปซ้ำ */
+  imageHash: string | null
 }
 
 function clean(value: unknown): number {

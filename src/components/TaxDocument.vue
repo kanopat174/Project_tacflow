@@ -43,11 +43,8 @@ const printedAt = new Date().toISOString()
     <article class="tax-document">
     <header class="doc-head">
       <div class="doc-brand">
-        <span class="doc-mark">T</span>
-        <span>
-          <strong>TaxFlow</strong>
-          <small>เอกสารสรุปการคำนวณภาษี</small>
-        </span>
+        <img class="doc-logo" src="@/assets/brand/logo-jodwise.png" alt="Jodwise จดไว้" />
+        <small>เอกสารสรุปการคำนวณภาษี</small>
       </div>
       <div class="doc-meta">
         <div><span>วันที่ออกเอกสาร</span><b>{{ thaiDate(printedAt) }}</b></div>
@@ -78,7 +75,7 @@ const printedAt = new Date().toISOString()
     <footer class="doc-foot">
       <p v-if="note">{{ note }}</p>
       <p>
-        เอกสารนี้จัดทำโดยระบบ TaxFlow ซึ่งเป็นโปรเจกต์เพื่อการศึกษา ไม่ใช่เอกสารของกรมสรรพากร
+        เอกสารนี้จัดทำโดยระบบ Jodwise (จดไว้) ซึ่งเป็นโปรเจกต์เพื่อการศึกษา ไม่ใช่เอกสารของกรมสรรพากร
         และไม่สามารถใช้อ้างอิงทางกฎหมายได้ ตัวเลขทั้งหมดเป็นการประมาณการจากข้อมูลที่ผู้ใช้กรอกเอง
       </p>
     </footer>

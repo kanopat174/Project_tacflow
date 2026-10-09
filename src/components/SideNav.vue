@@ -54,10 +54,10 @@ async function handleLogout() {
   <aside class="side-nav" :class="{ open: ui.navOpen }" aria-label="เมนูหลัก">
     <div class="side-brand">
       <RouterLink to="/dashboard" class="brand" @click="onBrand">
-        <span class="brand-mark">T</span>
+        <span class="brand-mark"><img src="@/assets/brand/logo-mark.png" alt="" width="38" height="38" /></span>
         <span class="brand-info">
-          <strong>TaxFlow</strong>
-          <span>Smart Tax Filing</span>
+          <strong>Jodwise</strong>
+          <span>จดไว้</span>
         </span>
       </RouterLink>
       <button class="side-close" type="button" aria-label="ปิดเมนู" @click="ui.navOpen = false">

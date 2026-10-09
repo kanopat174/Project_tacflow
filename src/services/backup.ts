@@ -55,7 +55,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** ตรวจว่าเป็นไฟล์สำรองของ TaxFlow ที่อ่านได้ — ไม่ผ่านให้โยน BackupError พร้อมเหตุผลภาษาไทย */
+/** ตรวจว่าเป็นไฟล์สำรองของ Jodwise ที่อ่านได้ — ไม่ผ่านให้โยน BackupError พร้อมเหตุผลภาษาไทย */
 export function parseBackup(text: string): BackupFile {
   let raw: unknown
   try {
@@ -63,7 +63,7 @@ export function parseBackup(text: string): BackupFile {
   } catch {
     throw new BackupError('ไฟล์นี้ไม่ใช่ JSON')
   }
-  if (!isObject(raw) || raw.app !== BACKUP_APP) throw new BackupError('ไฟล์นี้ไม่ใช่ไฟล์สำรองข้อมูลของ TaxFlow')
+  if (!isObject(raw) || raw.app !== BACKUP_APP) throw new BackupError('ไฟล์นี้ไม่ใช่ไฟล์สำรองข้อมูลของ Jodwise')
   if (raw.version !== BACKUP_VERSION) throw new BackupError(`ไฟล์สำรองรุ่น ${String(raw.version)} ใช้กับเว็บรุ่นนี้ไม่ได้`)
   if (!isObject(raw.data)) throw new BackupError('ไฟล์สำรองไม่มีข้อมูล')
 

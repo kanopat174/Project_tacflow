@@ -173,7 +173,7 @@ async function finish() {
         </template>
 
         <template v-else>
-          <h3>อยากให้ TaxFlow ช่วยเรื่องไหนมากที่สุด</h3>
+          <h3>อยากให้ Jodwise ช่วยเรื่องไหนมากที่สุด</h3>
           <div class="choice-grid">
             <button
               v-for="o in GOAL_OPTIONS"

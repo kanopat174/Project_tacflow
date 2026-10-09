@@ -68,7 +68,7 @@ export async function renderShareCard(content: ShareCardContent): Promise<Blob |
 
   ctx.fillStyle = 'rgba(255,255,255,0.7)'
   ctx.font = `600 32px ${font}`
-  ctx.fillText('TaxFlow · วางแผนภาษีให้สนุก', size / 2, 1020)
+  ctx.fillText('Jodwise · วางแผนภาษีให้สนุก', size / 2, 1020)
 
   return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'))
 }

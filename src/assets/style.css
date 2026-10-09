@@ -1,5 +1,5 @@
 /* =========================================================
-   TaxFlow — Design System
+   Jodwise — Design System
    โทน "เอกสารราชการที่อ่านง่าย": พื้นนวลตา + เขียวมรกต (accent เดียว)
    ฟอนต์: Kanit (หัวเรื่อง) / Sarabun (เนื้อหา) / IBM Plex Mono (ตัวเลขเงิน)
    โครงสร้างไฟล์อ้างอิงแนวทางเดียวกับ astra-motors/frontend/css/style.css
@@ -147,7 +147,7 @@ button { cursor: pointer; background: none; border: none; }
   gap: var(--space-2);
   min-height: 68px;
 }
-/* แบรนด์ห้ามหดและห้ามตัดบรรทัด ไม่งั้น "SMART TAX FILING" จะขึ้นสองบรรทัดและดันหัวสูงขึ้น */
+/* แบรนด์ห้ามหดและห้ามตัดบรรทัด ไม่งั้นชื่อเว็บจะขึ้นสองบรรทัดและดันหัวสูงขึ้น */
 .brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .brand:hover { text-decoration: none; }
 .brand-mark {
@@ -180,6 +180,20 @@ button { cursor: pointer; background: none; border: none; }
   color: var(--text-dim);
   white-space: nowrap;
 }
+/* โลโก้หัวหมู Jodwise — พื้นโปร่งใส ไม่ต้องมีกล่องสีรองหลัง */
+.brand-mark:has(img) { background: none; border-radius: 0; }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* คำว่า "จดไว้" เป็นภาษาไทย ไม่ต้องห่างตัวอักษรแบบตัวพิมพ์ใหญ่ */
+.brand-info strong + span { font-family: var(--font-display); font-size: 12px; letter-spacing: 0.02em; }
+
+/* โลโก้เต็ม: สลับไฟล์ตามธีม */
+.brand-wordmark { display: inline-block; }
+.brand-wordmark img { height: 100%; width: auto; display: block; }
+.brand-wordmark .wm-dark { display: none; }
+:root[data-theme='dark'] .brand-wordmark .wm-light { display: none; }
+:root[data-theme='dark'] .brand-wordmark .wm-dark { display: block; }
+.auth-logo { display: flex; justify-content: center; margin-bottom: var(--space-3); }
+.auth-logo:hover { text-decoration: none; }
 
 /*
  * เมนูมี 7 รายการ ต้องหดได้เมื่อที่ไม่พอ (min-width: 0) ไม่งั้นจะดันรายการสุดท้ายตกขอบ
@@ -872,7 +886,8 @@ input[type="range"]:focus { box-shadow: none; }
   border-bottom: 2px solid #0f766e;
   margin-bottom: 20px;
 }
-.tax-document .doc-brand { display: flex; align-items: center; gap: 10px; }
+.tax-document .doc-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tax-document .doc-logo { height: 40px; width: auto; display: block; }
 .tax-document .doc-mark {
   width: 34px;
   height: 34px;
@@ -2577,7 +2592,7 @@ input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 4px var(--accent-s
 :root[data-style='cute'] .tab.tab-active { box-shadow: 2px 2px 0 var(--cute-ink); border: 2px solid var(--cute-ink); }
 
 /* โลโก้กลายเป็นน้องออมสิน */
-:root[data-style='cute'] .brand-mark {
+:root[data-style='cute'] .brand-mark:not(:has(img)) {
   background: var(--mascot) center / 112% no-repeat, var(--accent-soft);
   color: transparent;
   border-radius: 50%;
@@ -2834,7 +2849,23 @@ tr.editing td { background: var(--accent-soft); }
    หน้าต่างบันทึกด่วน + กระดิ่งแจ้งเตือน
    ========================================================= */
 .quick-backdrop { z-index: 95; align-items: flex-end; }
-.quick-panel { width: min(460px, 100%); margin-bottom: 4vh; }
+.quick-panel { width: min(460px, 100%); margin-bottom: 4vh; max-height: 92vh; overflow-y: auto; }
+.slip-review dl { display: grid; gap: 4px; margin: 6px 0; font-size: 13.5px; }
+.slip-review dl > div { display: flex; justify-content: space-between; gap: 10px; }
+.slip-review dt { color: var(--text-dim); flex-shrink: 0; }
+.slip-review dd { margin: 0; text-align: right; overflow-wrap: anywhere; color: var(--text); }
+.slip-preview { display: block; margin: 8px 0; }
+.slip-preview img { display: block; max-width: 100%; max-height: 220px; margin: 0 auto; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.slip-fields { margin-top: 6px; }
+.slip-fields .slip-wide { grid-column: 1 / -1; }
+.slip-fields input[aria-invalid="true"] { border-color: var(--bad); }
+.slip-flag { color: var(--warn); margin-right: 4px; }
+.slip-issues { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.slip-direction { margin: 6px 0 0; font-size: 13.5px; }
+.slip-check { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; font-size: 13.5px; cursor: pointer; }
+.slip-raw { margin-top: 8px; font-size: 12.5px; }
+.slip-raw summary { cursor: pointer; color: var(--text-dim); }
+.slip-raw pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; margin: 6px 0 0; font-family: var(--font-data); }
 @media (max-width: 640px) {
   .quick-backdrop { padding: 0; }
   .quick-panel { margin-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; }

@@ -255,7 +255,7 @@ router.onError(finishNavigation)
 router.afterEach((to) => {
   finishNavigation()
   const title = to.meta.title as string | undefined
-  document.title = title ? `${title} — TaxFlow` : 'TaxFlow — ยื่นภาษีออนไลน์'
+  document.title = title ? `${title} — Jodwise จดไว้` : 'Jodwise จดไว้ — วางแผนภาษีและสมุดบัญชี'
 })
 
 export default router

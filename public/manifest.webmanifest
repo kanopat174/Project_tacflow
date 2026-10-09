@@ -1,6 +1,6 @@
 {
-  "name": "TaxFlow — วางแผนภาษีและสมุดบัญชี",
-  "short_name": "TaxFlow",
+  "name": "Jodwise จดไว้ — วางแผนภาษีและสมุดบัญชี",
+  "short_name": "Jodwise",
   "description": "คำนวณภาษี วางแผนลดหย่อน และจดรายรับรายจ่ายในที่เดียว",
   "lang": "th",
   "start_url": "/dashboard",
@@ -9,8 +9,9 @@
   "background_color": "#f6fbfa",
   "theme_color": "#0f8f86",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
     { "name": "คำนวณภาษี", "url": "/calculator/personal" },

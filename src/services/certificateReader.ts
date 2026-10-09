@@ -60,6 +60,50 @@ async function ocr(image: Blob | HTMLCanvasElement, onProgress: ReadProgress): P
   }
 }
 
+export interface OcrPage {
+  text: string
+  /** แต่ละบรรทัดพร้อมความมั่นใจ 0–100 */
+  lines: { text: string; confidence: number }[]
+  /** ความมั่นใจเฉลี่ยทั้งหน้า 0–100 */
+  confidence: number
+}
+
+/**
+ * เปิดตัวอ่าน OCR ตัวเดียวให้ fn อ่านได้หลายภาพ (เช่นลองหลายแนวการหมุน) โดยโหลดข้อมูลภาษาครั้งเดียว
+ *  - เก็บช่องว่างระหว่างคำไว้ ภาษาไทยไม่เว้นวรรคระหว่างคำ ช่องว่างที่มีจึงมีความหมาย (ชื่อ–นามสกุล)
+ *  - rotateAuto แก้ภาพเอียงเล็กน้อย เช่นถ่ายสลิปจากจอแล้วถือไม่ตรง
+ *  - คืนความมั่นใจรายบรรทัด ให้ตัวแยกข้อมูลรู้ว่าช่องไหนมาจากบรรทัดที่อ่านไม่ชัด
+ */
+export async function withOcrWorker<T>(
+  onProgress: ReadProgress,
+  fn: (recognize: (image: Blob | HTMLCanvasElement) => Promise<OcrPage>) => Promise<T>,
+): Promise<T> {
+  onProgress('กำลังโหลดตัวอ่านภาษาไทย', 0)
+  const { createWorker } = await import('tesseract.js')
+  const worker = await createWorker('tha+eng', 1, {
+    logger: (m: { status: string; progress: number }) => {
+      if (m.status === 'recognizing text') onProgress('กำลังอ่านตัวอักษร', m.progress)
+      else onProgress('กำลังโหลดตัวอ่านภาษาไทย', m.progress)
+    },
+  })
+  try {
+    await worker.setParameters({ preserve_interword_spaces: '1' })
+    return await fn(async (image) => {
+      const { data } = await worker.recognize(image, { rotateAuto: true }, { text: true, blocks: true })
+      const lines = (data.blocks ?? []).flatMap((b) =>
+        b.paragraphs.flatMap((p) => p.lines.map((l) => ({ text: l.text.trim(), confidence: l.confidence }))),
+      )
+      return {
+        text: data.text,
+        lines: lines.length ? lines : data.text.split('\n').map((text) => ({ text, confidence: data.confidence })),
+        confidence: data.confidence,
+      }
+    })
+  } finally {
+    await worker.terminate()
+  }
+}
+
 async function readPdf(file: Blob, onProgress: ReadProgress): Promise<{ text: string; method: 'pdf' | 'ocr' }> {
   onProgress('กำลังเปิด PDF', 0)
   const doc = await loadPdf(file)

@@ -26,7 +26,7 @@ function toggleTheme(event: Event) {
   fx.themeSwitched(theme.resolved.value === 'dark', event.currentTarget as Element)
 }
 
-const title = computed(() => (route.meta.title as string | undefined) ?? 'TaxFlow')
+const title = computed(() => (route.meta.title as string | undefined) ?? 'Jodwise')
 /** หน้านี้มีคำแนะนำจากตัวการ์ตูนไหม — มีจึงแสดงปุ่มขอดูอีกครั้ง */
 const hasIntro = computed(() => Boolean(introForRoute(route.name as string | undefined)))
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
