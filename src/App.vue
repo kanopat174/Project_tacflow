@@ -17,6 +17,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useGameStore } from '@/stores/game'
 import { useLockStore } from '@/stores/lock'
 import { QUICK_INTENTS, useUiStore, type QuickIntent } from '@/stores/ui'
+import { Analytics } from '@vercel/analytics/vue'
 
 // แถบค้นหา Ctrl+K โหลดแยกไฟล์ตอนเปิดครั้งแรก ไม่เพิ่มขนาดหน้าแรกของเว็บ
 const CommandPalette = defineAsyncComponent(() => import('@/components/CommandPalette.vue'))
